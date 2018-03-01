@@ -78,7 +78,7 @@
   (verify-tensor/ternary-op-select (driver) *datatype*))
 
 
-(def-all-dtype-test ternary-reduce
+(def-all-dtype-test unary-reduce
   (verify-tensor/unary-reduce (driver) *datatype*))
 
 
