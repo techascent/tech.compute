@@ -32,7 +32,7 @@ specific device architecture.
 
 Components of the compute abstraction:
 
-### [driver.clj](../src/tech/compute/driver.clj)
+### [driver.clj](src/tech/compute/driver.clj)
 
 (ns documentation)
 ```clojure
@@ -79,12 +79,9 @@ of algorithms on the GPU, CPU, and perhaps in the web then this would be an appr
 management for those algorithms.
 
 
-There are currently two drivers written for the compute engine:
+There is one default driver provided for a pure-cpu implementation
 
-1. [cpu](../src/tech/compute/cpu/driver.clj)
-2. [cuda](../src/tech/compute/cuda/driver.clj)
-
-**Please note that there are vestigial math implementations in those files that are subsumed by the tensor api**
+1. [cpu](src/tech/compute/cpu/driver.clj)
 
 ## License
 
