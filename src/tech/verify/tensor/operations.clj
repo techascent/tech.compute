@@ -2,6 +2,7 @@
   (:require [clojure.core.matrix :as m]
             [clojure.test :refer :all]
             [tech.compute.driver :as drv]
+            [tech.tensor.utils :as tm-utils]
             [tech.tensor :as ct]
             [tech.tensor.operations :as tops]
             [tech.datatype.core :as dtype]))
@@ -60,7 +61,7 @@
                      tops/ceil
                      nil
                      data
-                     (mapv #(Math/ceil (drv/dtype-cast % datatype)) data))))
+                     (mapv #(Math/ceil (tm-utils/dtype-cast % datatype)) data))))
 
 (defn floor-operation
   [driver datatype]
@@ -70,7 +71,7 @@
                      tops/floor
                      nil
                      data
-                     (mapv #(Math/floor (drv/dtype-cast % datatype)) data))))
+                     (mapv #(Math/floor (tm-utils/dtype-cast % datatype)) data))))
 
 (defn logistic-operation
   [driver datatype]
@@ -104,7 +105,7 @@
                     tops/exp
                     nil
                     data
-                    (mapv #(drv/dtype-cast (Math/exp (double %)) datatype) data))))
+                    (mapv #(tm-utils/dtype-cast (Math/exp (double %)) datatype) data))))
 
 (defn binary-operation [driver datatype op-fn src-data-a src-data-b compare-result]
   (tensor-context
@@ -129,7 +130,7 @@
                      tops/*
                      x1
                      x2
-                     (mapv #(drv/dtype-cast (* (double %1) (double %2)) datatype) x1 x2))))
+                     (mapv #(tm-utils/dtype-cast (* (double %1) (double %2)) datatype) x1 x2))))
 
 (defn add-operation
   [driver datatype]
@@ -140,7 +141,7 @@
                       tops/+
                       x1
                       x2
-                      (mapv #(drv/dtype-cast (+ %1 %2) datatype) x1 x2))))
+                      (mapv #(tm-utils/dtype-cast (+ %1 %2) datatype) x1 x2))))
 
 (defn subtract-operation
   [driver datatype]
@@ -151,7 +152,7 @@
                       tops/-
                       x1
                       x2
-                      (mapv #(drv/dtype-cast (- %1 %2) datatype) x1 x2))))
+                      (mapv #(tm-utils/dtype-cast (- %1 %2) datatype) x1 x2))))
 
 (defn >-operation
   [driver datatype]

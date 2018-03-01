@@ -2,6 +2,7 @@
   (:require [tech.tensor :as ct]
             [tech.tensor.dimensions :as ct-dims]
             [tech.compute.driver :as drv]
+            [tech.tensor.utils :as tm-utils]
             [clojure.test :refer :all]
             [clojure.core.matrix :as m]
             [clojure.core.matrix.stats :as stats]))
@@ -48,8 +49,8 @@ for the cuda backend."
   (tensor-context
    driver datatype
    (let [tensor (ct/->tensor (partition 3 (range 9)))
-         intermediate (ct/new-tensor [3 3] :datatype :int)
-         final (ct/new-tensor [3 3] :datatype :double)]
+         intermediate (ct/new-tensor [3 3] :datatype :int32)
+         final (ct/new-tensor [3 3] :datatype :float64)]
      (ct/assign! intermediate tensor)
      (ct/assign! final intermediate)
      (is (m/equals (range 9)
@@ -62,20 +63,20 @@ for the cuda backend."
    (let [tens-a (ct/->tensor (partition 3 (range 9)))
          tens-b (ct/->tensor (partition 3 (repeat 9 1)))]
      (ct/unary-op! tens-b 2.5 tens-a :ceil)
-     (is (m/equals (mapv #(Math/ceil (* ^double % (drv/dtype-cast 2.5 datatype))) (range 9))
+     (is (m/equals (mapv #(Math/ceil (* ^double % (tm-utils/dtype-cast 2.5 datatype))) (range 9))
                    (ct/to-double-array tens-b)))
      (ct/unary-op! tens-b 1.0 tens-b :-)
-     (is (m/equals (mapv #(- (Math/ceil (* ^double % (drv/dtype-cast 2.5 datatype)))) (range 9))
+     (is (m/equals (mapv #(- (Math/ceil (* ^double % (tm-utils/dtype-cast 2.5 datatype)))) (range 9))
                    (ct/to-double-array tens-b)))
 
      (let [src-data [0 1 2 3 4]
            tens-src (ct/->tensor src-data)
            tens-b (ct/->tensor src-data)]
        (ct/unary-op! tens-b 1.0 tens-src :exp)
-       (is (m/equals (mapv #(drv/dtype-cast (Math/exp (double %)) datatype) src-data)
+       (is (m/equals (mapv #(tm-utils/dtype-cast (Math/exp (double %)) datatype) src-data)
                      (ct/to-double-array tens-b)))
        (ct/unary-op! tens-b 1.0 tens-src :sqrt)
-       (is (m/equals (mapv #(drv/dtype-cast (Math/sqrt (double %)) datatype) src-data)
+       (is (m/equals (mapv #(tm-utils/dtype-cast (Math/sqrt (double %)) datatype) src-data)
                      (ct/to-double-array tens-b)))))))
 
 
@@ -100,7 +101,7 @@ for the cuda backend."
    (let [tens-a (ct/->tensor (partition 3 (range 9)))
          tens-b (ct/->tensor (partition 3 (repeat 9 1)))]
 
-     (when-not (= datatype :byte)
+     (when-not (= datatype :int8)
        (ct/binary-op! tens-b 2.0 tens-a 3.0 4.0 :*)
        (is (m/equals (mapv #(* 24 %) (range 9))
                      (ct/to-double-array tens-b))))
@@ -166,7 +167,7 @@ for the cuda backend."
                                        (map #(* 2.0 %) (sub-fn elem-idx))))
                              [0 1 2])
                        (ct/to-double-array tens-c-small)))))
-     (when (contains? #{:float :double} datatype)
+     (when (contains? #{:float32 :float64} datatype)
        (let [n-batches 3
              n-channels 5
              img-dim 4
@@ -658,9 +659,9 @@ for the cuda backend."
      (is (m/equals (repeat 10 (apply + src-data))
                    (ct/to-double-array dest)))
      (ct/unary-reduce! dest 1.0 src :mean)
-     (is (m/equals (repeat 10 (drv/dtype-cast (/ (apply + src-data)
-                                                 (count src-data))
-                                              datatype))
+     (is (m/equals (repeat 10 (tm-utils/dtype-cast (/ (apply + src-data)
+                                                      (count src-data))
+                                                   datatype))
                    (ct/to-double-array dest))))))
 
 
@@ -1149,7 +1150,7 @@ for the cuda backend."
    driver datatype
    (let [mat-tens (ct/->tensor (repeat 2 (partition 3 (range 9))))
          ;;Indexing only guaranteed to work for integers
-         index-tens (ct/->tensor [1 2 1 2 1 2] :datatype :int)
+         index-tens (ct/->tensor [1 2 1 2 1 2] :datatype :int32)
          sel-tens (ct/select mat-tens :all :all index-tens)]
      (testing "Basic assigning and sanity"
        (is (not (ct-dims/access-increasing? (:dimensions sel-tens))))
@@ -1160,7 +1161,7 @@ for the cuda backend."
 
      ;;Setup a test for what we do in centerloss
      (testing "Center loss use case"
-       (let [centers (ct/select mat-tens 0 (ct/->tensor [0 1 0 2 1] :datatype :int) :all)
+       (let [centers (ct/select mat-tens 0 (ct/->tensor [0 1 0 2 1] :datatype :int32) :all)
              batch-data (ct/new-tensor [5 3])]
          (ct/assign! batch-data centers)
          (is (m/equals [0 1 2 3 4 5 0 1 2 6 7 8 3 4 5]
@@ -1175,8 +1176,8 @@ for the cuda backend."
        (let [mat-tens (ct/->tensor (->> (range 9)
                                         (partition 3)))
              sel-tens (ct/select mat-tens
-                                 (ct/->tensor [0 1 1 2] :datatype :int)
-                                 (ct/->tensor [2 1 0] :datatype :int))
+                                 (ct/->tensor [0 1 1 2] :datatype :int32)
+                                 (ct/->tensor [2 1 0] :datatype :int32))
              dest-tens (ct/new-tensor [8 6])]
          (ct/assign! dest-tens sel-tens)
          (is (m/equals (vec (flatten [[2.0 1.0 0.0]

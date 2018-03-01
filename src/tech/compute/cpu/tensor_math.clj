@@ -155,12 +155,12 @@
 (defmacro ^:private datatype->cast-fn-symbol
   [dtype]
   (condp = dtype
-    :byte `byte
-    :short `short
-    :int `int
-    :long `long
-    :float `float
-    :double `double))
+    :int8 `byte
+    :int16 `short
+    :int32 `int
+    :int64 `long
+    :float32 `float
+    :float64 `double))
 
 
 (defn- generate-datatype-combinations
@@ -665,8 +665,8 @@
 
 (defmacro ^:private blas-macro-iter
   [inner-macro]
-  `{:double (~inner-macro marshal/as-double-array-view double .dgemm .dgemv)
-    :float (~inner-macro marshal/as-float-array-view float .sgemm .sgemv)})
+  `{:float64 (~inner-macro marshal/as-double-array-view double .dgemm .dgemv)
+    :float32 (~inner-macro marshal/as-float-array-view float .sgemm .sgemv)})
 
 
 (defmacro ^:private blas-impl
@@ -1369,7 +1369,7 @@
                              ~'exc-pad-kernel-num-elems))))))))))
 
 
-(defonce cpu-nn-ops-types [:float :double])
+(defonce cpu-nn-ops-types [:float32 :float64])
 
 
 (defmacro cpu-nn-ops-macro
@@ -1448,8 +1448,8 @@
 
 
 (def activation-backward-table
-  {:double (act-backward-impl :double)
-   :float (act-backward-impl :float)})
+  {:float64 (act-backward-impl :float64)
+   :float32 (act-backward-impl :float32)})
 
 
 (defrecord ConvDesc []
@@ -1952,7 +1952,7 @@
   (rand! [stream
           dest dest-dims
           {:keys [type] :as distribution}]
-    (let [rand-view (datatype->view-cast-fn :float dest)
+    (let [rand-view (datatype->view-cast-fn :float32 dest)
           elem-count (ct-dims/ecount dest-dims)
           rand-gen (SecureRandom.)]
       (cond
@@ -1986,12 +1986,12 @@
   (drv/sync-stream ct/*stream*)
   (let [dev-buffer (ct/tensor->buffer cpu-tensor)]
     (condp = (dtype/get-datatype dev-buffer)
-      :byte (.data ^ByteArrayView dev-buffer)
-      :short (.data ^ShortArrayView dev-buffer)
-      :int (.data ^IntArrayView dev-buffer)
-      :long (.data ^LongArrayView dev-buffer)
-      :float (.data ^FloatArrayView dev-buffer)
-      :double (.data ^DoubleArrayView dev-buffer)
+      :int8 (.data ^ByteArrayView dev-buffer)
+      :int16 (.data ^ShortArrayView dev-buffer)
+      :int32 (.data ^IntArrayView dev-buffer)
+      :int64 (.data ^LongArrayView dev-buffer)
+      :float32 (.data ^FloatArrayView dev-buffer)
+      :float64 (.data ^DoubleArrayView dev-buffer)
       )))
 
 

@@ -13,7 +13,7 @@
       (test-fn))))
 
 
-(def ^:dynamic *datatype* :double)
+(def ^:dynamic *datatype* :float64)
 
 
 (defmacro def-double-float-test
@@ -22,10 +22,10 @@
         float-test-name (str test-name "-f")]
    `(do
       (deftest ~(symbol double-test-name)
-        (with-bindings {#'*datatype* :double}
+        (with-bindings {#'*datatype* :float64}
           ~@body))
       (deftest ~(symbol float-test-name)
-        (with-bindings {#'*datatype* :float}
+        (with-bindings {#'*datatype* :float32}
           ~@body)))))
 
 
@@ -35,10 +35,10 @@
         long-test-name (str test-name "-l")]
    `(do
       (deftest ~(symbol int-test-name)
-        (with-bindings {#'*datatype* :int}
+        (with-bindings {#'*datatype* :int32}
           ~@body))
       (deftest ~(symbol long-test-name)
-        (with-bindings {#'*datatype* :long}
+        (with-bindings {#'*datatype* :int64}
           ~@body)))))
 
 
@@ -53,22 +53,22 @@
         ]
    `(do
       (deftest ~(symbol double-test-name)
-        (with-bindings {#'*datatype* :double}
+        (with-bindings {#'*datatype* :float64}
           ~@body))
       (deftest ~(symbol float-test-name)
-        (with-bindings {#'*datatype* :float}
+        (with-bindings {#'*datatype* :float32}
           ~@body))
       (deftest ~(symbol long-test-name)
-        (with-bindings {#'*datatype* :long}
+        (with-bindings {#'*datatype* :int64}
           ~@body))
       (deftest ~(symbol int-test-name)
-        (with-bindings {#'*datatype* :int}
+        (with-bindings {#'*datatype* :int32}
           ~@body))
       (deftest ~(symbol short-test-name)
-        (with-bindings {#'*datatype* :short}
+        (with-bindings {#'*datatype* :int16}
           ~@body))
       (deftest ~(symbol byte-test-name)
-        (with-bindings {#'*datatype* :byte}
+        (with-bindings {#'*datatype* :int8}
           ~@body)))))
 
 
@@ -81,14 +81,14 @@
         int-test-name (str test-name "-i")]
    `(do
       (deftest ~(symbol double-test-name)
-        (with-bindings {#'*datatype* :double}
+        (with-bindings {#'*datatype* :float64}
           ~@body))
       (deftest ~(symbol float-test-name)
-        (with-bindings {#'*datatype* :float}
+        (with-bindings {#'*datatype* :float32}
           ~@body))
       (deftest ~(symbol long-test-name)
-        (with-bindings {#'*datatype* :long}
+        (with-bindings {#'*datatype* :int64}
           ~@body))
       (deftest ~(symbol int-test-name)
-        (with-bindings {#'*datatype* :int}
+        (with-bindings {#'*datatype* :int32}
           ~@body)))))

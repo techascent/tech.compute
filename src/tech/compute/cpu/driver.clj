@@ -126,23 +126,23 @@ Use with care; the synchonization primitives will just hang with this stream."
 (defmacro datatype->view-cast-fn
   [dtype buf]
   (condp = dtype
-    :byte `(marshal/as-byte-array-view ~buf)
-    :short `(marshal/as-short-array-view ~buf)
-    :int `(marshal/as-int-array-view ~buf)
-    :long `(marshal/as-long-array-view ~buf)
-    :float `(marshal/as-float-array-view ~buf)
-    :double `(marshal/as-double-array-view ~buf)))
+    :int8 `(marshal/as-byte-array-view ~buf)
+    :int16 `(marshal/as-short-array-view ~buf)
+    :int32 `(marshal/as-int-array-view ~buf)
+    :int64 `(marshal/as-long-array-view ~buf)
+    :float32 `(marshal/as-float-array-view ~buf)
+    :float64 `(marshal/as-double-array-view ~buf)))
 
 
 (defmacro datatype->cast-fn
   [dtype val]
   (condp = dtype
-    :byte `(byte ~val)
-    :short `(short ~val)
-    :int `(int ~val)
-    :long `(long ~val)
-    :float `(float ~val)
-    :double `(double ~val)))
+    :int8 `(byte ~val)
+    :int16 `(short ~val)
+    :int32 `(int ~val)
+    :int64 `(long ~val)
+    :float32 `(float ~val)
+    :float64 `(double ~val)))
 
 
 
@@ -152,10 +152,10 @@ Use with care; the synchonization primitives will just hang with this stream."
         dev-dst# dev-dst-indexes# dst-stride#
         n-elems-per-idx#]
      (let [dev-src# (datatype->view-cast-fn ~datatype dev-src#)
-           dev-src-indexes# (datatype->view-cast-fn :int dev-src-indexes#)
+           dev-src-indexes# (datatype->view-cast-fn :int32 dev-src-indexes#)
            src-stride# (long src-stride#)
            dev-dst# (datatype->view-cast-fn ~datatype dev-dst#)
-           dev-dst-indexes# (datatype->view-cast-fn :int dev-dst-indexes#)
+           dev-dst-indexes# (datatype->view-cast-fn :int32 dev-dst-indexes#)
            dst-stride# (long dst-stride#)
            n-elems-per-idx# (long n-elems-per-idx#)
            n-indexes# (.length dev-src-indexes#)]
@@ -247,7 +247,7 @@ Use with care; the synchonization primitives will just hang with this stream."
 
   (allocate-rand-buffer-impl [impl elem-count]
     (check-stream-error impl)
-    (dtype/make-view :float elem-count)))
+    (dtype/make-view :float32 elem-count)))
 
 
 (extend-type CPUDriver

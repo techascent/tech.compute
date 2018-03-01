@@ -42,6 +42,7 @@ In general we want as much error checking and analysis done in this file as oppo
             [think.resource.core :as resource]
             [clojure.math.combinatorics :as combo]
             [tech.tensor.math :as tm]
+            [tech.tensor.utils :as tm-utils]
             [tech.tensor.dimensions :refer [when-not-error] :as dims]))
 
 
@@ -102,7 +103,7 @@ In general we want as much error checking and analysis done in this file as oppo
 
 ;;Similar to stream, the engine will set this variable and clients should not set
 ;;the variable themselves.
-(def ^:dynamic *datatype* :double)
+(def ^:dynamic *datatype* :float64)
 
 (defmacro with-datatype
   [dtype & body]
@@ -396,7 +397,7 @@ as one expects.  This means actually 2 conditions are checked:
 
 (defn to-double-array
   ^doubles [tensor]
-  (to-array-of-type tensor :double))
+  (to-array-of-type tensor :float64))
 
 
 (defn to-core-matrix
@@ -629,8 +630,8 @@ and the rest of the dimensions being squashed into n-rows."
   (condp = (datatype->keyword x)
     :number
     (assign! dest (perform-unary-op
-                   (* (double (compute-drv/dtype-cast alpha (get-datatype dest)))
-                      (double (compute-drv/dtype-cast x (get-datatype dest))))
+                   (* (double (tm-utils/dtype-cast alpha (get-datatype dest)))
+                      (double (tm-utils/dtype-cast x (get-datatype dest))))
                    op))
     :tensor
     (if (compute-drv/alias? (tensor->buffer dest) (tensor->buffer x))
@@ -893,8 +894,8 @@ The leading dimensions of both vectors must match."
 
 (defn- ensure-cudnn-datatype
   [dtype op]
-  (when-not-error (or (= :double dtype)
-                      (= :float dtype))
+  (when-not-error (or (= :float64 dtype)
+                      (= :float32 dtype))
     (format "%s is only defined for float and double tensors" op)
     {:datatype dtype}))
 
@@ -1028,9 +1029,9 @@ Flat (equal) distribution including minimum but excluding maximum
   "Generate a pool of random numbers.
 Due to cuda limitations, this function is limited to floating point numbers."
   ^Tensor [dest distribution]
-  (when-not-error (= :float (get-datatype dest))
+  (when-not-error (= :float32 (get-datatype dest))
     "Can only generate rands into floating point buffers"
-    {:expected-datatype :float
+    {:expected-datatype :float32
      :received-datatype (get-datatype dest)})
   (when-not-error (and (dense? dest)
                        (dims/access-increasing? (tensor->dimensions dest)))
@@ -1057,8 +1058,8 @@ preconditions and then returns the type of batch normalization required (spatial
     (when-not-error (> (double epsilon) 1e-5)
       "Epsilon cannot be smaller than 1e-5 (cudnn limitation"
       {:epsilon epsilon})
-    (when-not-error (or (= :double (get-datatype input))
-                        (= :float (get-datatype input)))
+    (when-not-error (or (= :float64 (get-datatype input))
+                        (= :float32 (get-datatype input)))
       "batch-normalization is only defined for float and double tensors"
       {:input-datatype (get-datatype input)})
     ;;For cudnn operations the data must be packed at the moment.  This isn't a hard requirement

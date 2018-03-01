@@ -87,7 +87,7 @@
 
 
 (def-int-long-test mask
-  (verify-tensor/mask (driver) :int))
+  (verify-tensor/mask (driver) *datatype*))
 
 
 (def-all-dtype-test select
@@ -104,7 +104,7 @@
 
 ;;Note that this is not a float-double test.
 (deftest rand-operator
-  (verify-tensor/rand-operator (driver) :float))
+  (verify-tensor/rand-operator (driver) :float32))
 
 
 (def-all-dtype-test indexed-tensor
