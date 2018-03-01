@@ -120,7 +120,7 @@ respectively.
 
 To add a new operation one needs basically 5 steps:
 1.  Decide the keyword and the type of operation.
-2.  Add the op to the [appropriate cpu op dispatch table](https://github.com/tech-ascent/tech/blob/master/src/tech/compute/cpu/tensor_math.clj#L172)
+2.  Add the op to the [appropriate cpu op dispatch table](../src/tech/compute/cpu/tensor_math.clj#L211)
 
 
 Your new operation is now setup and will work across all supported broadcast patterns and potentially all datatypes.
@@ -142,4 +142,4 @@ The rules for broadcasting in the tensor system are:
 3. While indexing through the specific operand, take the remainder of the dimension index with the specific operands index.
 4. The operation's overall element count is (apply * max-shape).
 
-* Reference [cpu](../src/tech/compute/cpu/tensor_math.clj) implementation.
+* Reference [cpu](../src/tech/tensor/dimensions.clj#L226) implementation.
