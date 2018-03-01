@@ -15,8 +15,8 @@ are indicated to backends allowing for greater parallelism.
 
 ### Foundations
 The [tensor abstraction](../src/tech/tensor.clj) is built upon three main components:
-1.  The [compute](compute.md) system.
-2.  A [description mechanism](../src/tech/tensor/description) for defining exactly how the system should interpret a given buffer of data.
+1.  The [compute](../README.md) system.
+2.  A [dimension mechanism](../src/tech/tensor/dimensions.clj) for defining exactly how the system should interpret a given buffer of data.
 3.  A [backend protocol](../src/tech/tensor/math.clj) above and beyond the compute mechanism that defines the interface the backends need to implement.
 
 
@@ -82,15 +82,12 @@ in the compute document is that it enables algorithms such as:
    optimizer parameters.
    
 *  Allocate one buffer and create multiple tensors that all exist at
-   the same base address of the buffer.  An example of this is used in
-   tech to optimize traversals and is described in
-   [this](https://github.com/thinktopic/tech/pull/218) PR.
+   the same base address of the buffer.
    
    
    
 ### Existing backends
 * [cpu](../src/tech/compute/cpu/tensor_math.clj)
-* [cuda](../src/tech/compute/cuda/tensor_math.clj)
    
    
 ### Operation Design (adding new unary/binary/binary operations)
@@ -123,7 +120,7 @@ respectively.
 
 To add a new operation one needs basically 5 steps:
 1.  Decide the keyword and the type of operation.
-2.  Add the op to the [appropriate cpu op dispatch table](https://github.com/tech-ascent/tech/blob/master/src/tech/compute/cpu/tensor_math.clj#L172)
+2.  Add the op to the [appropriate cpu op dispatch table](../src/tech/compute/cpu/tensor_math.clj#L211)
 
 
 Your new operation is now setup and will work across all supported broadcast patterns and potentially all datatypes.
@@ -145,4 +142,4 @@ The rules for broadcasting in the tensor system are:
 3. While indexing through the specific operand, take the remainder of the dimension index with the specific operands index.
 4. The operation's overall element count is (apply * max-shape).
 
-* Reference [cpu](../src/tech/tensor/dimensions.clj#L189) implementation.
+* Reference [cpu](../src/tech/tensor/dimensions.clj#L226) implementation.
