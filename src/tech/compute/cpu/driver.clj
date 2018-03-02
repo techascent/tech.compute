@@ -309,3 +309,9 @@ Use with care; the synchonization primitives will just hang with this stream."
 (extend-type ArrayViewBase
   resource/PResource
   (release-resource [_]))
+
+
+(def default-cpu-stream
+  (memoize
+   (fn []
+     (main-thread-cpu-stream))))

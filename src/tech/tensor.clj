@@ -89,6 +89,7 @@ In general we want as much error checking and analysis done in this file as oppo
 ;;Stream is dynamically bound at execution time presumably by an entity outside of the context
 ;;of this file.  Due to this clients of this file should not be manipulating stream.
 (def ^:dynamic *stream*)
+
 (defmacro with-stream
   [stream & body]
   `(with-bindings {#'*stream* ~stream}
@@ -1657,3 +1658,12 @@ projecting to the surface of the hypersphere like normalize does, do a <= operat
   mp/PAssignment
   (assign! [dest src]
     (typed-assign! dest src)))
+
+
+(set! *warn-on-reflection* false)
+(set! *unchecked-math* false)
+
+
+(alter-var-root #'*stream* (fn [_]
+                             (require 'tech.compute.cpu.driver)
+                             ((resolve 'tech.compute.cpu.driver/default-cpu-stream))))
