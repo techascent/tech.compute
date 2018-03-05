@@ -23,7 +23,7 @@
       (drv/copy-host->device stream buf-a 0 buf-b 0 10)
       (drv/memset stream buf-b 5 20.0 5)
       (drv/copy-device->host stream buf-b 0 output-buf-a 0 10)
-      (drv/sync-stream stream)
+      (drv/sync-with-host stream)
       (dtype/copy! output-buf-a 0 output-data 0 10)
       (is (= [100.0 1.0 2.0 3.0 4.0 20.0 20.0 20.0 20.0 20.0]
              (mapv double output-data))))))

@@ -1983,7 +1983,7 @@
 
 (defn as-java-array
   [cpu-tensor]
-  (drv/sync-stream ct/*stream*)
+  (drv/sync-with-host ct/*stream*)
   (let [dev-buffer (ct/tensor->buffer cpu-tensor)]
     (condp = (dtype/get-datatype dev-buffer)
       :int8 (.data ^ByteArrayView dev-buffer)

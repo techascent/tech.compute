@@ -373,6 +373,7 @@ as one expects.  This means actually 2 conditions are checked:
         (mp/assign! retval tensor)
         retval)))
 
+
 (defn copy-to-java-type
   [dest ^Tensor src]
   (resource/with-resource-context
@@ -385,7 +386,8 @@ as one expects.  This means actually 2 conditions are checked:
                       n-elems (dtype/get-datatype tensor))]
      (compute-drv/copy-device->host stream (tensor->buffer tensor)
                                     0 host-buffer 0 n-elems)
-     (compute-drv/wait-for-event (compute-drv/create-event stream))
+     ;;Block until the copy completes.
+     (compute-drv/sync-with-host stream)
      (dtype/copy! host-buffer 0 dest 0 n-elems)
      dest)))
 
@@ -431,7 +433,7 @@ will determine the shape of the outgoing tensor."
     (dtype/copy-raw->item! data host-buffer 0)
     (compute-drv/copy-host->device stream host-buffer 0 dev-buffer 0 n-elems)
     ;;The wait here is so that we can clean up the host buffer.
-    (compute-drv/sync-stream stream)
+    (compute-drv/sync-with-host stream)
     (resource/release host-buffer)
     (construct-tensor device dimensions dev-buffer)))
 

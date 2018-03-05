@@ -157,21 +157,17 @@ and can be synchonized with the host or with each other using events."
                       host-buffer host-offset elem-count])
   (copy-device->device [stream dev-a dev-a-off dev-b dev-b-off elem-count])
   (memset [stream device-buffer device-offset elem-val elem-count])
-  (create-event [stream]
-    "Create an event for synchronization.  The event is triggered when the stream
-executes to the event.")
-  (sync-event [stream event]
-    "Have this stream pause until a given event is triggered."))
+  (sync-with-host [stream]
+    "Block host until stream's queue is finished executing")
+  (sync-with-stream [src-stream dst-stream]
+    "Create an event in src-stream's execution queue, then have dst stream wait on
+that event.  This allows dst-stream to ensure src-stream has reached a certain point
+of execution before continuing.  Both streams must be of the same driver."))
 
 
 (defprotocol PStreamProvider
   "Get a stream from an object"
   (get-stream [impl]))
-
-
-(defprotocol PEvent
-  (wait-for-event [event]
-    "Wait on the host until an event is triggered."))
 
 
 (defn sub-buffer
@@ -183,21 +179,6 @@ executes to the event.")
     (when-not (<= length new-max-length)
       (throw (Exception. "Sub buffer out of range.")))
     (sub-buffer-impl device-buffer offset length)))
-
-
-(defn sync-stream
-  [stream]
-  (let [evt (create-event stream)]
-    (wait-for-event evt)
-    (resource/release evt)))
-
-
-(defn sync-streams
-  "Force wait-stream to wait for event-stream"
-  [event-stream wait-stream]
-  (let [evt (create-event event-stream)]
-    (sync-event wait-stream evt)
-    (resource/release evt)))
 
 
 (defn host-array->device-buffer
@@ -212,7 +193,7 @@ executes to the event.")
         device-buffer (allocate-device-buffer elem-count datatype :device device)]
     (dtype/copy! upload-ary 0 upload-buffer 0 elem-count)
     (copy-host->device stream upload-buffer 0 device-buffer 0 elem-count)
-    (sync-stream stream)
+    (sync-with-host stream)
     (resource/release upload-buffer)
     device-buffer))
 
@@ -228,7 +209,7 @@ executes to the event.")
                                               :usage-type :one-time)
         download-ary (dtype/make-array-of-type datatype elem-count)]
     (copy-device->host stream device-buffer 0 download-buffer 0 elem-count)
-    (sync-stream stream)
+    (sync-with-host stream)
     (dtype/copy! download-buffer 0 download-ary 0 elem-count)
     (resource/release download-buffer)
     download-ary))

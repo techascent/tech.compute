@@ -145,43 +145,6 @@ Use with care; the synchonization primitives will just hang with this stream."
     :float64 `(double ~val)))
 
 
-
-(defmacro ^:private indexed-copy-impl-macro
-  [datatype]
-  `(fn [dev-src# dev-src-indexes# src-stride#
-        dev-dst# dev-dst-indexes# dst-stride#
-        n-elems-per-idx#]
-     (let [dev-src# (datatype->view-cast-fn ~datatype dev-src#)
-           dev-src-indexes# (datatype->view-cast-fn :int32 dev-src-indexes#)
-           src-stride# (long src-stride#)
-           dev-dst# (datatype->view-cast-fn ~datatype dev-dst#)
-           dev-dst-indexes# (datatype->view-cast-fn :int32 dev-dst-indexes#)
-           dst-stride# (long dst-stride#)
-           n-elems-per-idx# (long n-elems-per-idx#)
-           n-indexes# (.length dev-src-indexes#)]
-       (parallel/parallel-for
-        vec-idx# n-indexes#
-        (let [src-idx# (v-aget dev-src-indexes# vec-idx#)
-              dst-idx# (v-aget dev-dst-indexes# vec-idx#)
-              src-offset# (* src-idx# src-stride#)
-              dst-offset# (* dst-idx# dst-stride#)]
-          (c-for
-           [elem-idx# 0 (< elem-idx# n-elems-per-idx#) (inc elem-idx#)]
-           (v-aset dev-dst# (+ dst-offset# elem-idx#)
-                   (v-aget dev-src# (+ src-offset# elem-idx#)))))))))
-
-
-(defmacro ^:private indexed-copy-iter
-  []
-  (->> (for [dtype dtype-base/datatypes]
-         [dtype `(indexed-copy-impl-macro ~dtype)])
-       (into {})))
-
-
-(def indexed-copy-table
-  (indexed-copy-iter))
-
-
 (extend-type CPUStream
   drv/PStream
   (copy-host->device [stream host-buffer host-offset
@@ -197,30 +160,20 @@ Use with care; the synchonization primitives will just hang with this stream."
   (memset [stream device-buffer device-offset elem-val elem-count]
     (with-stream-dispatch stream
       (dtype-base/set-constant! device-buffer device-offset elem-val elem-count)))
-  (create-event [stream]
-    (let [^CPUEvent event (->CPUEvent (async/chan))]
-      (with-stream-dispatch stream
-        (async/close! (.input-chan event)))
-      event))
-  (indexed-copy-impl [stream dev-src dev-src-indexes src-stride
-                      dev-dst dev-dst-indexes dst-stride
-                      n-elems-per-idx]
-    (with-stream-dispatch stream
-      ((get indexed-copy-table (dtype/get-datatype dev-src))
-       dev-src dev-src-indexes src-stride
-       dev-dst dev-dst-indexes dst-stride
-       n-elems-per-idx)))
-  (sync-event [stream event]
+  (sync-with-host [stream]
+    ;;If main thread cpu stream then we are already syncced
     (when-not (is-main-thread-cpu-stream? stream)
-      (with-stream-dispatch stream
-        (drv/wait-for-event event)))))
+      (let [^CPUEvent event (->CPUEvent (async/chan))]
+        (with-stream-dispatch stream
+          (async/close! (.input-chan event)))
+        (async/<!! (.input-chan event)))))
+  (sync-with-stream [src-stream dst-stream]
+    (let [^CPUEvent event (->CPUEvent (async/chan))]
+      (with-stream-dispatch src-stream
+        (async/close! (.input-chan event)))
+      (with-stream-dispatch dst-stream
+        (async/<!! (.input-chan event))))))
 
-(extend-type CPUEvent
-  drv/PEvent
-  (wait-for-event [event]
-    (async/<!! (.input-chan event)))
-  resource/PResource
-  (release-resource [event]))
 
 (defn driver
   [& {:keys [num-devices]
@@ -231,6 +184,7 @@ Use with care; the synchonization primitives will just hang with this stream."
             (->> (range num-devices)
                  (mapv #(-> (->CPUDevice (constantly retval) % error-atom)))))
     retval))
+
 
 (extend-type CPUDevice
   drv/PDevice
