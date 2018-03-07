@@ -157,9 +157,6 @@ Use with care; the synchonization primitives will just hang with this stream."
   (copy-device->device [stream dev-a dev-a-off dev-b dev-b-off elem-count]
     (with-stream-dispatch stream
       (dtype/copy! dev-a dev-a-off dev-b dev-b-off elem-count)))
-  (memset [stream device-buffer device-offset elem-val elem-count]
-    (with-stream-dispatch stream
-      (dtype-base/set-constant! device-buffer device-offset elem-val elem-count)))
   (sync-with-host [stream]
     ;;If main thread cpu stream then we are already syncced
     (when-not (is-main-thread-cpu-stream? stream)

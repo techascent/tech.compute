@@ -1040,7 +1040,7 @@ for the cuda backend."
    (testing "Gaussian rand"
      (let [test-vec (->> (range 1 11)
                          (mapcat (fn [idx]
-                                   (let [tens (ct/rand! (ct/new-tensor [10000])
+                                   (let [tens (ct/rand! (ct/new-tensor [100000])
                                                             (ct/gaussian-distribution
                                                              :mean idx :variance idx))
                                          values (ct/to-double-array tens)]

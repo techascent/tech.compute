@@ -447,10 +447,12 @@ will determine the shape of the outgoing tensor."
         stream (check-stream)
         device (compute-drv/get-device stream)
         dev-buffer (compute-drv/allocate-device-buffer n-elems datatype
-                                                       :device device)]
+                                                       :device device)
+        retval (construct-tensor device dimensions dev-buffer)]
     (when init-value
-      (compute-drv/memset stream dev-buffer 0 0 n-elems))
-    (construct-tensor device dimensions dev-buffer)))
+      (m/assign! retval init-value))
+    retval
+))
 
 
 (defn transpose
@@ -545,12 +547,10 @@ and the rest of the dimensions being squashed into n-rows."
 
 (defmethod typed-assign! [:tensor :number]
   [^Tensor dest src]
-  (if (dense? dest)
-    (compute-drv/memset (check-stream) (tensor->buffer dest) 0 src (ecount dest))
-    (tm/assign-constant! (check-stream)
-                         (tensor->buffer dest)
-                         (tensor->dimensions dest)
-                         src (ecount dest))))
+  (tm/assign-constant! (check-stream)
+                       (tensor->buffer dest)
+                       (tensor->dimensions dest)
+                       src (ecount dest)))
 
 
 (defn- memcpy-semantics?

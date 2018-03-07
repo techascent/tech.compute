@@ -156,7 +156,6 @@ and can be synchonized with the host or with each other using events."
   (copy-device->host [stream device-buffer device-offset
                       host-buffer host-offset elem-count])
   (copy-device->device [stream dev-a dev-a-off dev-b dev-b-off elem-count])
-  (memset [stream device-buffer device-offset elem-val elem-count])
   (sync-with-host [stream]
     "Block host until stream's queue is finished executing")
   (sync-with-stream [src-stream dst-stream]
