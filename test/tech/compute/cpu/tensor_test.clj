@@ -47,34 +47,6 @@
   (verify-tensor/gemv (driver) *datatype*))
 
 
-(def-double-float-test batch-normalize!
-  (verify-tensor/batch-normalize (driver) *datatype*))
-
-
-(def-double-float-test batch-normalize-update-and-apply
-  (verify-tensor/batch-normalize-update-and-apply (driver) *datatype*))
-
-
-(def-double-float-test batch-normalize-gradients
-  (verify-tensor/batch-normalize-gradients (driver) *datatype*))
-
-
-(def-double-float-test activation-forward
-  (verify-tensor/activation-forward (driver) *datatype*))
-
-
-(def-double-float-test activation-gradient
-  (verify-tensor/activation-gradient (driver) *datatype*))
-
-
-(def-double-float-test softmax
-  (verify-tensor/softmax (driver) *datatype*))
-
-
-(def-double-float-test convolution-operator
-  (verify-tensor/convolution-operator (driver) *datatype*))
-
-
 (def-all-dtype-test ternary-op-select
   (verify-tensor/ternary-op-select (driver) *datatype*))
 
@@ -97,10 +69,6 @@
 
 (def-all-dtype-test select-transpose-interaction
   (verify-tensor/select-transpose-interaction (driver) *datatype*))
-
-
-(def-double-float-test pooling-operator
-  (verify-tensor/pooling-operator (driver) *datatype*))
 
 
 ;;Note that this is not a float-double test.
