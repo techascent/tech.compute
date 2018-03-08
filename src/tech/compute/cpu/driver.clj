@@ -21,8 +21,8 @@
 (set! *unchecked-math* true)
 
 
-(defrecord CPUDevice [driver-fn device-id error-atom])
-(defrecord CPUStream [device input-chan exit-chan error-atom])
+(defrecord CPUDevice [driver-fn device-id error-atom default-stream])
+(defrecord CPUStream [device-fn input-chan exit-chan error-atom])
 (defrecord CPUDriver [devices error-atom])
 
 
@@ -32,7 +32,7 @@
   CPUDevice
   (get-driver [device] ((get device :driver-fn)))
   CPUStream
-  (get-driver [stream] (drv/get-driver (.device stream))))
+  (get-driver [stream] (drv/get-driver ((:device-fn stream)))))
 
 
 (extend-protocol drv/PDeviceProvider
@@ -41,7 +41,7 @@
   CPUDevice
   (get-device [device] device)
   CPUStream
-  (get-device [stream] (.device stream)))
+  (get-device [stream] ((:device-fn stream))))
 
 
 (extend-protocol drv/PStreamProvider
@@ -64,7 +64,7 @@
 
 (defn cpu-stream
   ([device error-atom]
-   (let [^CPUStream retval (->CPUStream device (async/chan 16)
+   (let [^CPUStream retval (->CPUStream (constantly device) (async/chan 16)
                                         (async/chan) error-atom)]
      (async/thread
        (loop [next-val (async/<!! (:input-chan retval))]
@@ -84,7 +84,7 @@
   "Create a cpu stream that will execute everything immediately inline.
 Use with care; the synchonization primitives will just hang with this stream."
   ^CPUStream []
-  (->CPUStream (drv/default-device (driver)) nil nil nil))
+  (->CPUStream (constantly (drv/default-device (driver))) nil nil nil))
 
 
 (defn is-main-thread-cpu-stream?
@@ -172,21 +172,24 @@ Use with care; the synchonization primitives will just hang with this stream."
         (async/<!! (.input-chan event))))))
 
 
-(defn driver
-  [& {:keys [num-devices]
-      :or {num-devices 1}}]
-  (let [error-atom (atom nil)
-        retval (->CPUDriver (atom nil) error-atom)]
-    (reset! (get retval :devices)
-            (->> (range num-devices)
-                 (mapv #(-> (->CPUDevice (constantly retval) % error-atom)))))
+(defn make-cpu-device
+  [driver-fn dev-number error-atom]
+  (let [retval (->CPUDevice driver-fn dev-number error-atom (atom nil))
+        ;;Default cpu stream runs in the main thread of execution
+        default-stream (->CPUStream (constantly retval) nil nil nil)]
+    (reset! (:default-stream retval) default-stream)
     retval))
+
 
 
 (extend-type CPUDevice
   drv/PDevice
   (memory-info-impl [impl]
     (get-memory-info))
+
+  (supports-create-stream? [device] true)
+
+  (default-stream [device] @(:default-stream device))
 
   (create-stream-impl [impl]
     (check-stream-error impl)
@@ -262,7 +265,20 @@ Use with care; the synchonization primitives will just hang with this stream."
   (release-resource [_]))
 
 
+(def driver
+  (memoize
+   (fn []
+     (let [error-atom (atom nil)
+           retval (->CPUDriver (atom nil) error-atom)]
+       (reset! (get retval :devices)
+               (->> (range 1)
+                    (mapv #(make-cpu-device (constantly retval) % error-atom))))
+       retval))))
+
+
 (def default-cpu-stream
   (memoize
    (fn []
-     (main-thread-cpu-stream))))
+     (-> (driver)
+         (drv/default-device)
+         (drv/default-stream)))))

@@ -12,7 +12,7 @@
   [driver datatype & body]
   `(drv/with-compute-device
      (drv/default-device ~driver)
-     (with-bindings {#'ct/*stream* (drv/create-stream)
+     (with-bindings {#'ct/*stream* (drv/get-default-stream)
                      #'ct/*datatype* ~datatype}
        ~@body)))
 

@@ -45,6 +45,10 @@ optimized for the desired use case.  Default is one-time."))
 (defprotocol PDevice
   (memory-info-impl [device]
     "Get a map of {:free <long> :total <long>} describing the free and total memory in bytes.")
+  (supports-create-stream? [device]
+    "Does this device support create-stream?")
+  (default-stream [device]
+    "All devices must have a default stream whether they support create or not.")
   (create-stream-impl [device]
     "Create a stream of execution.  Streams are indepenent threads of execution.  They can be synchronized
 with each other and the main thread using events.")
@@ -109,6 +113,11 @@ data overlap?"))
   (when-not *current-compute-device*
     (throw (ex-info "No compute device bound." {})))
   *current-compute-device*)
+
+
+(defn get-default-stream
+  []
+  (default-stream (current-device)))
 
 
 (defn memory-info

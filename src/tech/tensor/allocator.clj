@@ -114,7 +114,7 @@ tensor of exactly the requested shape.")
               retval-buffer-ecount (long (m/ecount existing-buffer))
               new-buffer (if (< retval-buffer-ecount shape-ecount)
                              (do
-                               (compute-drv/sync-stream ct/*stream*)
+                               (compute-drv/sync-with-host ct/*stream*)
                                (resource/release existing-buffer)
                                (compute-drv/allocate-device-buffer shape-ecount
                                                                    (dtype/get-datatype existing-buffer)))

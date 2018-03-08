@@ -11,7 +11,7 @@
   [driver datatype]
   (drv/with-compute-device
     (drv/default-device driver)
-    (let [stream (drv/create-stream)
+    (let [stream (drv/get-default-stream)
           buf-a (drv/allocate-host-buffer driver 10 datatype)
           output-buf-a (drv/allocate-host-buffer driver 10 datatype)
           buf-b (drv/allocate-device-buffer 10 datatype)
