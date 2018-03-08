@@ -1,17 +1,17 @@
-(ns tech.verify.tensor.operations
+(ns tech.compute.verify.tensor.operations
   (:require [clojure.core.matrix :as m]
             [clojure.test :refer :all]
             [tech.compute.driver :as drv]
-            [tech.tensor.utils :as tm-utils]
-            [tech.tensor :as ct]
-            [tech.tensor.operations :as tops]
+            [tech.compute.tensor.utils :as tm-utils]
+            [tech.compute.tensor :as ct]
+            [tech.compute.tensor.operations :as tops]
             [tech.datatype.core :as dtype]))
 
 (defmacro tensor-context
   [driver datatype & body]
   `(drv/with-compute-device
      (drv/default-device ~driver)
-     (with-bindings {#'ct/*stream* (drv/create-stream)
+     (with-bindings {#'ct/*stream* (drv/get-default-stream)
                      #'ct/*datatype* ~datatype}
        ~@body)))
 

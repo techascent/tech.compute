@@ -1,4 +1,4 @@
-(ns tech.tensor.math
+(ns tech.compute.tensor.math
   "Protocol to abstract implementations from the tensor library.  Tensors do not appear in at
   this level; at this level we have buffers, streams, and index systems.  This is intended to
   allow operations that fall well outside of the tensor definition to happen with clever use of

@@ -1,6 +1,6 @@
-(ns tech.tensor.allocator
-  (:require [tech.tensor :as ct]
-            [tech.tensor.dimensions :as dims]
+(ns tech.compute.tensor.allocator
+  (:require [tech.compute.tensor :as ct]
+            [tech.compute.tensor.dimensions :as dims]
             [tech.compute.driver :as compute-drv]
             [clojure.core.matrix :as m]
             [tech.datatype.core :as dtype]

@@ -1,4 +1,4 @@
-(ns tech.tensor.utils)
+(ns tech.compute.tensor.utils)
 
 
 (defmulti dtype-cast

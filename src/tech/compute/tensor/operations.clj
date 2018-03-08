@@ -1,9 +1,9 @@
-(ns tech.tensor.operations
+(ns tech.compute.tensor.operations
   "tensor operations with syntatic sugar"
   (:refer-clojure :exclude [max min * - + > >= < <= bit-and bit-xor])
   (:require [clojure.core.matrix :as m]
-            [tech.tensor :as tensor]
-            [tech.datatype.core :as dtype]))
+            [tech.compute.tensor :as tensor]
+            [tech.datatype.base :as dtype]))
 
 (defn max
   "Takes an input tensor and returns the max of x or the value given, mutates the output tensor and returns it"

@@ -2,7 +2,7 @@
   (:require [tech.datatype.core :refer [v-aget v-aset] :as dtype]
             [tech.datatype.base :as dtype-base]
             [tech.datatype.marshal :as marshal]
-            [tech.tensor.math :as tm]
+            [tech.compute.tensor.math :as tm]
             [clojure.math.combinatorics :as combo]
             [tech.compute.cpu.driver
              :refer [datatype->view-cast-fn
@@ -15,8 +15,8 @@
             [tech.compute.math-util :as cmu]
             [tech.compute.driver :as drv]
             [think.resource.core :as resource]
-            [tech.tensor :as ct]
-            [tech.tensor.dimensions :as ct-dims]
+            [tech.compute.tensor :as ct]
+            [tech.compute.tensor.dimensions :as ct-dims]
             [clojure.core.matrix.stats :as stats])
   (:import [tech.compute.cpu.driver CPUStream]
            [com.github.fommil.netlib BLAS]

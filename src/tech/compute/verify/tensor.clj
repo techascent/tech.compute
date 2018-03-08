@@ -1,8 +1,8 @@
-(ns tech.verify.tensor
-  (:require [tech.tensor :as ct]
-            [tech.tensor.dimensions :as ct-dims]
+(ns tech.compute.verify.tensor
+  (:require [tech.compute.tensor :as ct]
+            [tech.compute.tensor.dimensions :as ct-dims]
             [tech.compute.driver :as drv]
-            [tech.tensor.utils :as tm-utils]
+            [tech.compute.tensor.utils :as tm-utils]
             [clojure.test :refer :all]
             [clojure.core.matrix :as m]
             [clojure.core.matrix.stats :as stats]))

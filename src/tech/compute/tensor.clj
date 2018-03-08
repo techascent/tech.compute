@@ -1,4 +1,4 @@
-(ns tech.tensor
+(ns tech.compute.tensor
   "Tensor library used to implement the basic math abstraction in cortex.  This abstraction is
   meant to provide a language in which to implement new things but that explicitly avoids access
   to certain parts of the compute ecosystem that the engine driving the ecosystem is expected to
@@ -41,9 +41,9 @@ In general we want as much error checking and analysis done in this file as oppo
             [clojure.core.matrix :as m]
             [think.resource.core :as resource]
             [clojure.math.combinatorics :as combo]
-            [tech.tensor.math :as tm]
-            [tech.tensor.utils :as tm-utils]
-            [tech.tensor.dimensions :refer [when-not-error] :as dims]))
+            [tech.compute.tensor.math :as tm]
+            [tech.compute.tensor.utils :as tm-utils]
+            [tech.compute.tensor.dimensions :refer [when-not-error] :as dims]))
 
 
 (set! *warn-on-reflection* true)

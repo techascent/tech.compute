@@ -1,5 +1,5 @@
 (ns tech.compute.cpu.tensor-test
-  (:require [tech.verify.tensor :as verify-tensor]
+  (:require [tech.compute.verify.tensor :as verify-tensor]
             [tech.compute.verify.utils
              :refer [def-double-float-test
                      def-all-dtype-test
@@ -9,7 +9,7 @@
             [clojure.test :refer :all]
             [tech.compute.cpu.driver :refer [driver]]
             [tech.compute.cpu.tensor-math]
-            [tech.tensor :as tt]))
+            [tech.compute.tensor :as tt]))
 
 
 (use-fixtures :each test-wrapper)

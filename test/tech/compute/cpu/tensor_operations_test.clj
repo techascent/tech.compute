@@ -1,5 +1,5 @@
 (ns tech.compute.cpu.tensor-operations-test
-  (:require [tech.verify.tensor.operations :as verify-tensor-operations]
+  (:require [tech.compute.verify.tensor.operations :as verify-tensor-operations]
             [tech.compute.verify.utils
              :refer [def-double-float-test
                      def-all-dtype-test

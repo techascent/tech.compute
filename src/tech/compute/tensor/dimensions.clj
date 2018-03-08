@@ -1,4 +1,4 @@
-(ns tech.tensor.dimensions
+(ns tech.compute.tensor.dimensions
   "Cortex tensors dimensions control the shape and stride of the tensor along with offsetting
   into the actual data buffer.  This allows multiple backends to share a single implementation
   of a system that will allow transpose, reshape, etc. assuming the backend correctly interprets
