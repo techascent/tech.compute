@@ -210,7 +210,7 @@ that rerequires the items to have the same element count."
   (get-in dimensions [:shape 1] 1))
 
 
-(defn- tensor->dimensions
+(defn tensor->dimensions
   [^Tensor tensor]
   (.dimensions tensor))
 
@@ -547,10 +547,7 @@ and the rest of the dimensions being squashed into n-rows."
 
 (defmethod typed-assign! [:tensor :number]
   [^Tensor dest src]
-  (tm/assign-constant! (check-stream)
-                       (tensor->buffer dest)
-                       (tensor->dimensions dest)
-                       src (ecount dest)))
+  (tm/assign-constant! (check-stream) dest src))
 
 
 (defn- memcpy-semantics?
@@ -586,10 +583,7 @@ and the rest of the dimensions being squashed into n-rows."
                                        (ecount src))
       (do
         (ensure-same-device dest src)
-        (tm/assign! (check-stream)
-                    (tensor->buffer dest) (tensor->dimensions dest)
-                    (tensor->buffer src) (tensor->dimensions src)
-                    (max (ecount src) (ecount dest)))))))
+        (tm/assign! (check-stream) dest src)))))
 
 
 (defn- ensure-broadcast-rules
@@ -638,19 +632,13 @@ and the rest of the dimensions being squashed into n-rows."
                    op))
     :tensor
     (if (compute-drv/alias? (tensor->buffer dest) (tensor->buffer x))
-      (tm/unary-accum! (check-stream)
-                       (tensor->buffer dest) (tensor->dimensions dest)
-                       alpha op (ecount dest))
+      (tm/unary-accum! (check-stream) dest alpha op)
       (do
         (ensure-datatypes (get-datatype dest) x)
         (ensure-same-device dest x)
         (ensure-broadcast-rules dest x)
         (check-partial-alias dest x)
-        (tm/unary-op! (check-stream)
-                      (tensor->buffer dest) (tensor->dimensions dest)
-                      (tensor->buffer x) (tensor->dimensions x)
-                      alpha op
-                      (max (ecount dest) (ecount x))))))
+        (tm/unary-op! (check-stream) dest x alpha op))))
   dest)
 
 
@@ -689,20 +677,10 @@ and the rest of the dimensions being squashed into n-rows."
                  x
                  :noop)
       (if (compute-drv/alias? (tensor->buffer dest) (tensor->buffer x))
-        (tm/binary-accum-constant!
-         (check-stream)
-         (tensor->buffer dest) (tensor->dimensions dest) alpha
-         y
-         (ecount dest) op reverse-operands?)
+        (tm/binary-accum-constant! (check-stream) dest alpha y op reverse-operands?)
         (do
           (check-partial-alias dest x)
-          (tm/binary-op-constant!
-           (check-stream)
-           (tensor->buffer dest) (tensor->dimensions dest)
-           (tensor->buffer x) (tensor->dimensions x) alpha
-           y
-           (max (ecount x)
-                (ecount dest)) op reverse-operands?)))))
+          (tm/binary-op-constant! (check-stream) dest x alpha y op reverse-operands?)))))
   dest)
 
 
@@ -742,25 +720,11 @@ and the rest of the dimensions being squashed into n-rows."
                                       [beta alpha x true])]
         (ensure-broadcast-rules dest y)
         (ensure-datatypes (get-datatype dest) y)
-        (tm/binary-accum!
-         (check-stream)
-         (tensor->buffer dest) (tensor->dimensions dest) alpha
-         (tensor->buffer y) (tensor->dimensions y) beta
-         (max (ecount dest)
-              (ecount y)) op
-         rev-ops?
-         (not dest-is-max-shape?)))
+        (tm/binary-accum! (check-stream) dest alpha y beta op rev-ops? (not dest-is-max-shape?)))
       (do
         (ensure-broadcast-rules dest x y)
         (ensure-datatypes (get-datatype x) y dest)
-        (tm/binary-op!
-         (check-stream)
-         (tensor->buffer dest) dest-dims
-         (tensor->buffer x) x-dims alpha
-         (tensor->buffer y) y-dims beta
-         (max (ecount dest)
-              (ecount x)
-              (ecount y)) op))))
+        (tm/binary-op! (check-stream) dest x alpha y beta op))))
   dest)
 
 
@@ -831,29 +795,12 @@ Datatypes must match."
         (doseq [tens tensors]
           (ensure-broadcast-rules dest tens))
         (case num-tensor-args
-          3 (tm/ternary-op! (check-stream)
-                            (tensor->buffer dest) (tensor->dimensions dest)
-                            (tensor->buffer x) (tensor->dimensions x) alpha
-                            (tensor->buffer y) (tensor->dimensions y) beta
-                            (tensor->buffer z) (tensor->dimensions z) gamma
-                            max-ecount
-                            op)
+          3 (tm/ternary-op! (check-stream) dest x alpha y beta z gamma op)
           2 (let [[[a-tens a-mul] [b-tens b-mul]] tensor-pairs]
-              (tm/ternary-op-constant! (check-stream)
-                                       (tensor->buffer dest) (tensor->dimensions dest)
-                                       (tensor->buffer a-tens) (tensor->dimensions a-tens) a-mul
-                                       (tensor->buffer b-tens) (tensor->dimensions b-tens) b-mul
-                                       (first constants)
-                                       max-ecount
-                                       op arg-order))
+              (tm/ternary-op-constant! (check-stream) dest a-tens a-mul b-tens b-mul (first constants) op arg-order))
           1 (let [[[a-tens a-mul]] tensor-pairs]
-              (tm/ternary-op-constant-constant! (check-stream)
-                                                (tensor->buffer dest) (tensor->dimensions dest)
-                                                (tensor->buffer a-tens) (tensor->dimensions a-tens) a-mul
-                                                (first constants)
-                                                (second constants)
-                                                max-ecount
-                                                op arg-order)))))
+              (tm/ternary-op-constant-constant! (check-stream) dest a-tens a-mul
+                                                (first constants) (second constants) op arg-order)))))
     dest))
 
 
@@ -880,10 +827,7 @@ The leading dimensions of both vectors must match."
       {:output-shape output-shape})
     (ensure-same-device output input)
     (ensure-datatypes (dtype/get-datatype output) input)
-    (tm/unary-reduce! (check-stream)
-                      (tensor->buffer output) (tensor->dimensions output)
-                      alpha (tensor->buffer input) (tensor->dimensions input)
-                      op)
+    (tm/unary-reduce! (check-stream) output alpha input op)
     output))
 
 
@@ -1040,583 +984,8 @@ Due to cuda limitations, this function is limited to floating point numbers."
                        (dims/access-increasing? (tensor->dimensions dest)))
     "Rand generation must have simple dense buffers" {})
   (valid-distribution? distribution)
-  (tm/rand! (check-stream)
-            (tensor->buffer dest)
-            (tensor->dimensions dest)
-            distribution)
+  (tm/rand! (check-stream) dest distribution)
   dest)
-
-
-(defn- batch-normalize-setup
-  "The various batch normalize calls all have a set of setup rules.  This checks all
-preconditions and then returns the type of batch normalization required (spatial vs. eltwise)."
-  [io-args mean-var-bias-scale-args epsilon]
-  (let [all-args (concat io-args mean-var-bias-scale-args)
-        input-shape (shape (first io-args))
-        input-shape (if (= 1 (count input-shape))
-                      [1 (first input-shape)]
-                      input-shape)
-        input (first io-args)]
-    (apply external-library-check! "batch-normalize" all-args)
-    (when-not-error (> (double epsilon) 1e-5)
-      "Epsilon cannot be smaller than 1e-5 (cudnn limitation"
-      {:epsilon epsilon})
-    (when-not-error (or (= :float64 (get-datatype input))
-                        (= :float32 (get-datatype input)))
-      "batch-normalization is only defined for float and double tensors"
-      {:input-datatype (get-datatype input)})
-    ;;For cudnn operations the data must be packed at the moment.  This isn't a hard requirement
-    ;;but cudnn has per-operation constraints that take some research to divine out.
-    (apply ensure-vector-indexable mean-var-bias-scale-args)
-    (let [mvbs-args (mapv as-row-vector mean-var-bias-scale-args)
-          means-shape (shape (first mvbs-args))
-          io-shapes (mapv shape io-args)
-          mvbs-shapes (mapv shape mvbs-args)
-          retval {:mvbs-args mvbs-args
-                  :input-shape input-shape}]
-      (when-not-error (> (count input-shape) 1)
-        "Input shape needs at least 2 dimensions"
-        {:input-shape (shape input)})
-      (when-not-error (= 1 (count (distinct io-shapes)))
-        "Tensor input and output shapes do not match"
-        {:io-shapes io-shapes})
-      (when-not-error (= 1 (count (distinct mvbs-shapes)))
-        "means, variances, scale, bias must have same shape"
-        {:mean-var-bias-scale-shapes mvbs-shapes})
-      (case (count input-shape)
-        2 (do
-            (when-not-error (= (second input-shape)
-                               (first means-shape))
-              "Means, variances, scale, bias must match input element count."
-              {:input-shape input-shape
-               :means-shape means-shape})
-            (assoc retval :type :eltwise))
-        (let [batch-count (long (apply * (drop-last 2 input-shape)))
-              [channel-count element-count] (take-last 2 input-shape)]
-          (when-not-error (= (long channel-count)
-                             (long (first means-shape)))
-            "means, variances, scale bias size must match input channel count"
-            {:input-shape input-shape
-             :input-channel-count channel-count
-             :means-element-count (first means-shape)})
-          (assoc retval :type :spatial))))))
-
-
-(defn batch-normalize!
-  "output = ((input - mean) / (sqrt (variance + epsilon)) * scale + bias.
-
-Operation needs at least 2 dimensions for input, while means, variances, scale, bias
-are all going to be interpreted as vectors.  Output shape must match input shape exactly.
-
-- If there are 2 dimensions, do an elementwise operation where the means, variances, scale,
-and bias are all expected to be the trailing dimension in size.  Batch size is the leading
-dimension.
-- If there are more than 2 dimensions, then apply a 'spatial' normalization such that the
-second to last dimensions is considered the channels member and means, variances, scale, and
-bias are all 'channels' size in length and the normalization are applied in an channel-wise
-operation.  Batch size is then considered everything before the last two dimensions."
-  [output input means variances scale bias epsilon]
-  (let [{:keys [type mvbs-args input-shape]}
-        (batch-normalize-setup [output input]
-                               [means variances scale bias]
-                               epsilon)
-        [means variances scale bias] mvbs-args]
-    (condp = type
-      :eltwise (tm/batch-normalize-eltwise! (check-stream)
-                                            (tensor->buffer output)
-                                            (tensor->buffer input)
-                                            (tensor->buffer means)
-                                            (tensor->buffer variances)
-                                            (tensor->buffer scale)
-                                            (tensor->buffer bias)
-                                            epsilon
-                                            (first input-shape)
-                                            (second input-shape))
-      :spatial (let [batch-count (long (apply * (drop-last 2 input-shape)))
-                     [channel-count element-count] (take-last 2 input-shape)]
-                 (tm/batch-normalize-spatial! (check-stream)
-                                              (tensor->buffer output)
-                                              (tensor->buffer input)
-                                              (tensor->buffer means)
-                                              (tensor->buffer variances)
-                                              (tensor->buffer scale)
-                                              (tensor->buffer bias)
-                                              epsilon
-                                              batch-count
-                                              channel-count
-                                              element-count)))
-    output))
-
-(defn batch-normalize-update-and-apply!
-  "Calculate the per-batch stats and use those to ensure the output is normal.
-  Update the running means and variances using ave-factor like such:
-  running * (1 - ave-factor) + batch * ave-factor.
-  See documentation batch-normalize!
-
-!!!- NVIDIA stores the batch variances in an odd 1/sqrt form.  This probably allows them to
-  compute the answer slightly faster but it means the actual meaning of the batch variances
-  variable is obscured.  Thus we cannot reliably test the batch-variances variable across
-  implementations.  If you want per-batch variances then you need to set the average factor to
-  0.0 and then read out the running variances."
-  [output input
-   batch-means batch-variances
-   running-means running-variances
-   ave-factor
-   scale bias epsilon]
-  (let [{:keys [type mvbs-args input-shape]} (batch-normalize-setup [output input]
-                                                                    [batch-means batch-variances
-                                                                     running-means running-variances
-                                                                     scale bias]
-                                                                    epsilon)
-        [batch-means batch-variances
-         running-means running-variances
-         scale bias]             mvbs-args]
-    (condp = type
-      :eltwise
-      (tm/batch-normalize-update-and-apply-eltwise! (check-stream)
-                                                    (tensor->buffer output)
-                                                    (tensor->buffer input)
-                                                    (tensor->buffer batch-means)
-                                                    (tensor->buffer batch-variances)
-                                                    (tensor->buffer running-means)
-                                                    (tensor->buffer running-variances)
-                                                    ave-factor
-                                                    (tensor->buffer scale)
-                                                    (tensor->buffer bias)
-                                                    epsilon
-                                                    (first input-shape)
-                                                    (second input-shape))
-      :spatial
-      (let [batch-count (long (apply * (drop-last 2 input-shape)))
-            [channel-count element-count] (take-last 2 input-shape)]
-        (tm/batch-normalize-update-and-apply-spatial! (check-stream)
-                                                      (tensor->buffer output)
-                                                      (tensor->buffer input)
-                                                      (tensor->buffer batch-means)
-                                                      (tensor->buffer batch-variances)
-                                                      (tensor->buffer running-means)
-                                                      (tensor->buffer running-variances)
-                                                      ave-factor
-                                                      (tensor->buffer scale)
-                                                      (tensor->buffer bias)
-                                                      epsilon
-                                                      batch-count
-                                                      channel-count
-                                                      element-count)))
-    [output batch-means batch-variances running-means running-variances]))
-
-
-(defn batch-normalize-gradients!
-  "Generate gradients.  batch-means and batch-variances must be *exactly* what was calculated
-during update-and-apply.  Also note that batch-variances is implementation defined.
-See batch-normalize-update-and-apply!"
-  [input-gradient scale-gradient bias-gradient output-gradient
-   output input batch-means batch-variances
-   scale bias epsilon]
-  (let [{:keys [type mvbs-args input-shape]} (batch-normalize-setup [output input
-                                                                     output-gradient input-gradient]
-                                                                    [batch-means batch-variances
-                                                                     scale bias
-                                                                     scale-gradient bias-gradient]
-                                                                    epsilon)
-        [batch-means batch-variances scale bias
-         scale-gradient bias-gradient] mvbs-args]
-    (condp = type
-      :eltwise
-      (tm/batch-normalize-gradients-eltwise! (check-stream)
-                                             (tensor->buffer input-gradient)
-                                             (tensor->buffer scale-gradient)
-                                             (tensor->buffer bias-gradient)
-                                             (tensor->buffer output-gradient)
-                                             (tensor->buffer output)
-                                             (tensor->buffer input)
-                                             (tensor->buffer batch-means)
-                                             (tensor->buffer batch-variances)
-                                             (tensor->buffer scale)
-                                             (tensor->buffer bias)
-                                             epsilon
-                                             (first input-shape)
-                                             (second input-shape))
-      :spatial
-      (let [batch-count (long (apply * (drop-last 2 input-shape)))
-            [channel-count element-count] (take-last 2 input-shape)]
-        (tm/batch-normalize-gradients-spatial! (check-stream)
-                                               (tensor->buffer input-gradient)
-                                               (tensor->buffer scale-gradient)
-                                               (tensor->buffer bias-gradient)
-                                               (tensor->buffer output-gradient)
-                                               (tensor->buffer output)
-                                               (tensor->buffer input)
-                                               (tensor->buffer batch-means)
-                                               (tensor->buffer batch-variances)
-                                               (tensor->buffer scale)
-                                               (tensor->buffer bias)
-                                               epsilon
-                                               batch-count channel-count element-count)))
-    [input-gradient scale-gradient bias-gradient]))
-
-
-(defn activation-gradient!
-  "Generalized function to get the input gradient from a set of 'activation' functions:
-  :logistic, :tanh :relu (max 0 x)
-  logistic: out * (1 - out) * out-grad
-  tanh: (1 - out * out) * out-grad
-  relu: (out > 0) ? out-grad : 0"
-  ^Tensor [input-gradient output-gradient output op]
-  (ensure-datatypes (get-datatype input-gradient) output output-gradient)
-  (ensure-same-device input-gradient output output-gradient)
-  (ensure-cudnn-datatype (get-datatype input-gradient) "activation-gradient!")
-  (ensure-external-library-compatible input-gradient output-gradient output)
-  (when-not-error (contains? #{:logistic :tanh :relu} op)
-    "Only :logistic :tanh and :relu are supported"
-    {:operation op})
-  (let [out-ecount (ecount output)]
-    (when-not-error (and (= out-ecount (ecount input-gradient))
-                         (= out-ecount (ecount output-gradient)))
-      "All element ecounts must match"
-      {:out-ecount out-ecount
-       :in-grad-ecount (ecount input-gradient)
-       :out-grad-ecount (ecount output-gradient)})
-    (tm/activation-gradient! (check-stream)
-                             (tensor->buffer input-gradient) (tensor->dimensions input-gradient)
-                             (tensor->buffer output-gradient) (tensor->dimensions output-gradient)
-                             (tensor->buffer output) (tensor->dimensions output)
-                             op
-                             out-ecount))
-  input-gradient)
-
-
-(defn softmax!
-  "Perform a softmax calculation across the last n-dimension of input, output.
-The first dimension is considered the batch count, the last n-dimensions are squashed
-and the softmax operation is performed across all of them.
-softmax: https://en.wikipedia.org/wiki/Softmax_function
-
-If the input has 3 dimensions, then the first dimensions is interpreted
-as a batch-count, the second as a channel-count and the third as an element
-count.  This will perform per-element, per-batch spatial softmax across the channels."
-  ^Tensor [output input]
-  (external-library-check! "softmax!" output input)
-  (when-not-error (= (shape output)
-                     (shape input))
-    "Input, output shapes do not match"
-    {:input-shape (shape input)
-     :output-shape (shape output)})
-  (if (= 3 (count (shape input)))
-    (tm/softmax-spatial!
-     (check-stream)
-     (tensor->buffer output) (tensor->dimensions output)
-     (tensor->buffer input) (tensor->dimensions input))
-    (let [input (as-batch-matrix input)
-          output (as-batch-matrix output)]
-      (tm/softmax-eltwise! (check-stream)
-                           (tensor->buffer output) (tensor->dimensions output)
-                           (tensor->buffer input) (tensor->dimensions input))))
-  output)
-
-
-(defn- ensure-non-nil
-  [map-data]
-  (when-not-error (every? #(not (nil? (second %))) map-data)
-    "Arguments were nil:"
-    map-data))
-
-
-(defn convolution-descriptor
-  "Create a descriptor.  This will probably be tracked by the resource system.  resource/release is guaranteed
-to be a valid call on the return value."
-  [datatype out-channels in-channels kern-width kern-height
-   pad-x pad-y stride-x stride-y]
-  ;;no stream required
-  (ensure-non-nil {:out-channels out-channels
-                   :in-channels in-channels
-                   :kern-width kern-width
-                   :kern-height kern-height
-                   :pad-x pad-x
-                   :pad-y pad-y
-                   :stride-x stride-x
-                   :stride-y stride-y})
-  {:datatype datatype
-   :out-channels out-channels
-   :in-channels in-channels
-   :kernel-width kern-width
-   :kernel-height kern-height
-   :pad-x pad-x
-   :pad-y pad-y
-   :stride-x stride-x
-   :stride-y stride-y
-   :descriptor (tm/convolution-descriptor (check-stream)
-                                          datatype out-channels in-channels
-                                          kern-width kern-height pad-x pad-y
-                                          stride-x stride-y)})
-
-
-(defn- get-padded-strided-dimension
-  "http://caffe.berkeleyvision.org/tutorial/layers.html.  Returns the dimensions
-of the output of a conv-net ignoring channels.  Caffe does this slightly different
-for pooling verse convolutional layers.  Furthermore keras does this differently
-than caffe for pooling layers so this exact calculation has been the source of
-a few compatibility issues."
-  [input-dim pad kernel-size stride dimension-op]
-  (let [partial-result (/ (- (+ (double input-dim)
-                                (* 2 (double pad)))
-                             (double kernel-size))
-                          (double stride))
-        partial-result (double (condp = dimension-op
-                                 :floor (Math/floor partial-result)
-                                 :ceil (Math/ceil partial-result)))]
-    (long (+ partial-result 1))))
-
-
-(defn get-convolution-output-dimensions
-  "Get the convolution output dimensions in the form of:
-{
-:width
-:height
-}"
-  [conv-descriptor input-width input-height]
-  (let [{:keys [dimension-op]
-         :or {dimension-op :floor}} conv-descriptor]
-   {:output-width (get-padded-strided-dimension input-width (:pad-x conv-descriptor)
-                                                (:kernel-width conv-descriptor) (:stride-x conv-descriptor)
-                                                dimension-op)
-    :output-height (get-padded-strided-dimension input-height (:pad-y conv-descriptor)
-                                                 (:kernel-height conv-descriptor) (:stride-y conv-descriptor)
-                                                 dimension-op)}))
-
-
-(defn choose-convolution-algorithms
-  "Choose the convolution algorithms.  This could be an expensive call.
-If use-defaults? is true then no tests are performed and the implementations are free to choose algorithms.
-The algorithm structure is in the form of:
-{:direction {:algorithm :workspace-size}}
-
-where direction may be:
-:forward :backward-bias :backward-weights :backward-data."
-  [descriptor input-width input-height batch-size
-   max-ideal-workspace-size & {:keys [use-defaults?]}]
-  (let [{:keys [output-width output-height]} (get-convolution-output-dimensions descriptor
-                                                                                input-width input-height)]
-    (tm/choose-convolution-algorithms (check-stream) descriptor
-                                      input-width input-height
-                                      output-width output-height
-                                      batch-size
-                                      max-ideal-workspace-size use-defaults?)))
-
-(defn- ensure-conv-weight-dims-match
-  [input weights conv-descriptor]
-  (let [[batch-size _] (shape (as-batch-matrix input))
-        {:keys [kernel-width kernel-height in-channels out-channels]} conv-descriptor
-        [out-size in-size] (shape (as-2d-matrix weights))]
-    (when-not-error (dense? weights)
-      "Convolution weights must be dense tensors"
-      {})
-    (when-not-error (= (long in-size)
-                       (* (long kernel-width) (long kernel-height) (long in-channels)))
-      "Weight column length does not equal kernel-width * kernel-height * in-channels"
-      {:weight-column-len in-size
-       :kernel-width kernel-width
-       :kernel-height kernel-height
-       :in-channels in-channels})
-    (when-not-error (= (long out-size)
-                       (long out-channels))
-      "Weight row count does not match out-channels"
-      {:weight-row-count out-size
-       :out-channels (long out-channels)})))
-
-
-(defn- ensure-conv-io
-  [conv-descriptor input-args output-args]
-  (let [{:keys [kernel-width kernel-height in-channels out-channels
-                pad-x pad-y stride-x stride-y]} conv-descriptor
-        [batch-size in-arg-channels in-height in-width] (shape (first input-args))
-        {:keys [output-width output-height]} (get-convolution-output-dimensions conv-descriptor in-height in-width)
-        in-channels (long in-channels)
-        out-chanenls (long out-channels)
-        output-width (long output-width)
-        output-height (long output-height)
-        expected-input-shape [batch-size in-channels in-height in-width]
-        expected-output-shape [batch-size out-channels output-width output-height]]
-    (when-not-error (every? dense? (concat input-args output-args))
-      "Convolution arguments must be dense tensors" {})
-    (doseq [input input-args]
-      (let [input-shape (shape (first input-args))]
-        (when-not-error (= expected-input-shape input-shape)
-          "Input dimensions do not match expected dimensions"
-          {:expected-shape expected-input-shape
-           :input-shape input-shape})))
-
-    (doseq [output output-args]
-      (let [output-shape (shape (first output-args))]
-        (when-not-error (= expected-output-shape output-shape)
-          "Output dimensions do not match expected dimensions"
-          {:expected-shape expected-output-shape
-           :output-shape output-shape})))))
-
-
-(defn convolution-forward!
-  "Perform convolution forward.  Input,output must be 4d tensors while weights
-must be a 2d tensor.  Workspace must be of (get-in algorithms [:forward :workspace-size]) ecount"
-  [output output-alpha input weights workspace conv-descriptor algorithms]
-  (external-library-check! "convolution-forward!" output input weights)
-  (ensure-conv-io conv-descriptor [input] [output])
-  (tm/convolution-forward! (check-stream)
-                           (tensor->buffer output) (tensor->dimensions output) output-alpha
-                           (tensor->buffer input) (tensor->dimensions input)
-                           (tensor->buffer weights) (tensor->dimensions weights)
-                           (tensor->buffer workspace) (ecount workspace)
-                           conv-descriptor algorithms)
-  output)
-
-
-(defn convolution-backward-weights!
-  [weight-gradient weight-gradient-alpha output-gradient input workspace conv-descriptor algorithms]
-  (external-library-check! "convolution-backward-weights!" weight-gradient output-gradient input)
-  (tm/convolution-backward-weights! (check-stream)
-                                    (tensor->buffer weight-gradient) (tensor->dimensions weight-gradient)
-                                    weight-gradient-alpha
-                                    (tensor->buffer output-gradient) (tensor->dimensions output-gradient)
-                                    (tensor->buffer input) (tensor->dimensions input)
-                                    (tensor->buffer workspace) (ecount workspace)
-                                    conv-descriptor algorithms)
-  weight-gradient)
-
-
-(defn convolution-backward-data!
-  [input-gradient input-gradient-alpha output-gradient weights workspace conv-descriptor algorithms]
-  (external-library-check! "convolution-backward-data!" input-gradient output-gradient weights)
-  (ensure-conv-io conv-descriptor [input-gradient] [output-gradient])
-  (tm/convolution-backward-data! (check-stream)
-                                 (tensor->buffer input-gradient) (tensor->dimensions input-gradient)
-                                 input-gradient-alpha
-                                 (tensor->buffer output-gradient) (tensor->dimensions output-gradient)
-                                 (tensor->buffer weights) (tensor->dimensions weights)
-                                 (tensor->buffer workspace) (ecount workspace)
-                                 conv-descriptor algorithms)
-  input-gradient)
-
-
-(def pool-operations #{:max :avg :avg-exc-pad})
-
-
-(defn pooling-descriptor
-  "Create a descriptor for the pooling system.  This is required to pass into pooling forward and pooling backward."
-  [datatype channels kern-width kern-height
-   pad-x pad-y stride-x stride-y
-   & {:keys [dimension-op pool-op]
-      :or {dimension-op :ceil pool-op :max}}]
-  (let [retval {:in-channels  channels
-                :out-channels channels
-                :datatype datatype
-                :kernel-width   kern-width
-                :kernel-height  kern-height
-                :pad-x        pad-x
-                :pad-y        pad-y
-                :stride-x     stride-x
-                :stride-y     stride-y
-                :pool-op      pool-op
-                :dimension-op dimension-op}]
-    (ensure-non-nil retval)
-    (when-not (get pool-operations pool-op)
-      (throw (ex-info "Max pooling layers have three possible pool operations:"
-                      {:possible-operation-set pool-operations
-                       :pool-op                pool-op})))
-    (assoc retval
-      :descriptor (tm/pooling-descriptor (check-stream)
-                                         datatype kern-width kern-height
-                                         pad-x pad-y stride-x stride-y pool-op dimension-op))))
-
-
-(defn pooling-forward!
-  [output output-alpha input pool-descriptor]
-  (external-library-check! "pooling-forward!" output input)
-  (ensure-conv-io pool-descriptor [input] [output])
-  (tm/pooling-forward! (check-stream)
-                       (tensor->buffer output)
-                       (tensor->dimensions output)
-                       output-alpha
-                       (tensor->buffer input)
-                       (tensor->dimensions input)
-                       pool-descriptor)
-  output)
-
-
-(defn pooling-backward!
-  [input-gradient input-grad-alpha input output output-gradient pool-descriptor]
-  (external-library-check! "pooling-backward!" input-gradient input output output-gradient)
-  (ensure-conv-io pool-descriptor [input-gradient input] [output output-gradient])
-  (tm/pooling-backward! (check-stream)
-                        (tensor->buffer input-gradient) (tensor->dimensions input-gradient) input-grad-alpha
-                        (tensor->buffer input) (tensor->dimensions input)
-                        (tensor->buffer output) (tensor->dimensions output)
-                        (tensor->buffer output-gradient) (tensor->dimensions output-gradient)
-                        pool-descriptor)
-  input-gradient)
-
-
-(defn lrn-descriptor
-  "LRN (local-response-normalization) is only partially supported (CUDA only).  A better pathway
-  forward for this functionality is to use a kernel size of 1 and same number of output channels
-  as input channels."
-  [& {:keys [n k alpha beta]
-      :or {n 5 k 2 alpha 1e-4 beta 0.75}}]
-  (tm/lrn-descriptor (check-stream) n k alpha beta))
-
-
-(defn lrn-forward!
-  "Run the lrn algorithm forward across channels:
-a[i] = a[i] / ((k + alpha*(windowed-summation a[i-n/2]^2...a[i+n/2]^2))^beta)"
-  [output input lrn-descriptor]
-  (let [in-shape (m/shape input)
-        out-shape (m/shape output)]
-   (when-not-error (= in-shape out-shape)
-     "Input and output shapes must match"
-     {:input-shape in-shape
-      :output-shape out-shape})
-   (when-not-error (>= (count out-shape) 3)
-     "tensor must be of at least rank 3"
-     {:input-shape in-shape
-      :output-shape out-shape})
-   (ensure-datatypes (get-datatype output) input)
-   (ensure-cudnn-datatype (get-datatype output) "lrn-forward")
-   (tm/lrn-forward! (check-stream)
-                    (tensor->buffer output) (tensor->dimensions output)
-                    (tensor->buffer input) (tensor->dimensions input)
-                    lrn-descriptor)
-   output))
-
-
-(defn lrn-backward!
-  "Run the lrn algorithm backward across channels.
-  See cortex/examples/sage/local-response-normalization.sage"
-  [input-gradient output input output-gradient lrn-descriptor]
-  (let [in-shape (m/shape input)
-        out-shape (m/shape output)
-        in-grad-shape (m/shape input-gradient)
-        out-grad-shape (m/shape output-gradient)]
-    ;;All shapes must be identical
-    (when-not-error (and (= in-shape out-shape)
-                         (= in-shape in-grad-shape)
-                         (= in-shape out-grad-shape))
-     "Input and output shapes must match"
-     {:input-shape in-shape
-      :output-shape out-shape
-      :in-grad-shape in-grad-shape
-      :out-grad-shape out-grad-shape})
-   (when-not-error (>= (count out-shape) 3)
-     "tensor must be of at least rank 3"
-     {:input-shape in-shape
-      :output-shape out-shape})
-   (ensure-datatypes (get-datatype output) input input-gradient output-gradient)
-   (ensure-cudnn-datatype (get-datatype output) "lrn-forward")
-   (tm/lrn-backward! (check-stream)
-                     (tensor->buffer input-gradient) (tensor->dimensions input-gradient)
-                     (tensor->buffer output) (tensor->dimensions output)
-                     (tensor->buffer input) (tensor->dimensions input)
-                     (tensor->buffer output-gradient) (tensor->dimensions output-gradient)
-                     lrn-descriptor)
-   input-gradient))
-
 
 (defn normalize!
   "Ensure each vector of the last dimension of dest has length radius-length.
