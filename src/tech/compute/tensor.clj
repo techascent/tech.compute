@@ -215,6 +215,11 @@ that rerequires the items to have the same element count."
   (.dimensions tensor))
 
 
+(defn strides
+  [tensor]
+  (:strides (tensor->dimensions tensor)))
+
+
 (defn- tensor->column-stride
   ^long [^Tensor tensor]
   (dimensions->column-stride

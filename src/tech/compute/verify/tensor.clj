@@ -5,16 +5,18 @@
             [tech.compute.tensor.utils :as tm-utils]
             [clojure.test :refer :all]
             [clojure.core.matrix :as m]
-            [clojure.core.matrix.stats :as stats]))
+            [clojure.core.matrix.stats :as stats]
+            [think.resource.core :as resource]))
 
 
 (defmacro tensor-context
   [driver datatype & body]
-  `(drv/with-compute-device
-     (drv/default-device ~driver)
-     (with-bindings {#'ct/*stream* (drv/get-default-stream)
-                     #'ct/*datatype* ~datatype}
-       ~@body)))
+  `(resource/with-resource-context
+     (drv/with-compute-device
+       (drv/default-device ~driver)
+       (with-bindings {#'ct/*stream* (drv/get-default-stream)
+                       #'ct/*datatype* ~datatype}
+         ~@body))))
 
 
 (defn assign-constant!
