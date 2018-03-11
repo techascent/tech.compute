@@ -56,7 +56,12 @@ for the cuda backend."
      (ct/assign! intermediate tensor)
      (ct/assign! final intermediate)
      (is (m/equals (range 9)
-                   (ct/to-double-array final))))))
+                   (ct/to-double-array final)))
+     (let [bcast-tensor (ct/->tensor [5 6 7])
+           dest-tensor (ct/new-tensor [3 3])]
+       (ct/assign! dest-tensor bcast-tensor)
+       (is (m/equals (flatten (repeat 3 [5 6 7]))
+                     (ct/to-double-array dest-tensor)))))))
 
 
 (defn unary-op
