@@ -469,6 +469,17 @@ into it in a different order."
                                      reorder-vec)))
 
 
+(defn apply-select-result
+  [tensor select-result]
+  (let [{:keys [dimensions elem-offset]} select-result
+        tens-buffer (tensor->buffer tensor)
+        new-buffer (compute-drv/sub-buffer tens-buffer elem-offset
+                                           (- (ecount tens-buffer) (long elem-offset)))]
+    (assoc tensor
+           :buffer new-buffer
+           :dimensions dimensions)))
+
+
 (defn select
   "Limited implementation of the core.matrix select function call.
 Same rules apply *Except* if you pass in an array of numbers for a dimension
@@ -478,13 +489,7 @@ to add complexity there.  There must be an entry for every dimension of the tens
 see:
 https://cloojure.github.io/doc/core.matrix/clojure.core.matrix.html#var-select"
   [tensor & args]
-  (let [{:keys [dimensions elem-offset]} (apply dims/select (tensor->dimensions tensor) args)
-        tens-buffer (tensor->buffer tensor)
-        new-buffer (compute-drv/sub-buffer tens-buffer elem-offset
-                                           (- (ecount tens-buffer) (long elem-offset)))]
-    (assoc tensor
-           :buffer new-buffer
-           :dimensions dimensions)))
+  (apply-select-result tensor (apply dims/select (tensor->dimensions tensor) args)))
 
 
 (defn subvector

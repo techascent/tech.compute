@@ -206,7 +206,7 @@
   order.  This is necessary for external library interfaces (blas, cudnn).  An example would be
   after almost any transpose that is not made concrete (copied) this condition will probably not
   hold."
-  [{:keys [shape strides]}]
+  [{:keys [shape strides] :as dims}]
   (and (direct-shape? shape)
        (apply >= strides)))
 
@@ -484,15 +484,69 @@ b. Combine densely-packed dimensions (not as simple)."
      :strides strides}))
 
 
-(defn select
-  "Limited implementation of the core.matrix select function call.  Each dimension must have an
-entry and each entry may be:
-:all
-monotonically increasing inclusive range
-Index tensor (has exactly 1 dimension and it itself has a direct non-strided shape).
-see:
-https://cloojure.github.io/doc/core.matrix/clojure.core.matrix.html#var-select"
-  [dimensions & args]
+(defn monotonically-increasing?
+  [item-seq]
+  (and (apply < item-seq)
+       (= (count item-seq)
+          (+ 1
+             (- (last item-seq)
+                (first item-seq))))))
+
+
+(defn sequence->monotonic-definition
+  "Given a sequence convert it to a map of
+{:type :monotonically-increasing
+ :start start-idx
+ :count count}"
+  [item-seq ^long dim]
+  (when-not-error (monotonically-increasing? item-seq)
+    "Argument is not monotonically increasing"
+    {:argument item-seq})
+  (when-not-error (> (long dim)
+                     (long (apply max 0 item-seq)))
+    "Argument out of range of dimension"
+    {:dimension dim
+     :argument item-seq})
+  {:type :monotonically-increasing
+   :start (first item-seq)
+   :count (count item-seq)})
+
+
+(defn process-select-args
+  "Default processing of select arguments.  This allows
+:all - all indexes in the dimension
+[2 3 4] or (range 5) - monotonically increasing subset of the dimension
+  that starts at an arbitrary index.
+tensor - dynamically defined arbitrary subset of the dimension."
+  [shape args]
+  (map (fn [dim arg]
+         (cond
+           (= arg :all)
+           {:type :monotonically-increasing
+            :start 0
+            :count dim}
+           (sequential? arg)
+           (sequence->monotonic-definition arg dim)
+           (number? arg) arg
+           ;;Is this something shape-able
+           (vector? (m/shape arg))
+           (let [arg-shape (m/shape arg)]
+             (when-not (= 1 (count arg-shape))
+               (throw (ex-info "Index arguments must be vectors"
+                               {:arg-shape arg-shape})))
+             arg)
+           :else
+           (throw (ex-info "argument to select of incorrect type"
+                           {:arg arg}))))
+       shape args))
+
+
+(defn select-detail
+  "Breaking out the processing of select arguments from the reaction to that processing.
+This is to allow the select arguments to have different valid conditions; for instance
+select when doing dynamic compilation has different terms than when not."
+  [dimensions args & {:keys [arg-processor]
+                      :or {arg-processor process-select-args}}]
   (let [data-shp (shape dimensions)]
     (when-not-error (= (count data-shp)
                        (count args))
@@ -504,33 +558,7 @@ https://cloojure.github.io/doc/core.matrix/clojure.core.matrix.html#var-select"
           rev-strides (reversev strides)
           ;;Convert all :all arguments to either numbers or vectors
           ;;performing argument checking if possible.
-          rev-args (->> (map (fn [dim arg]
-                               (cond
-                                 (= arg :all)
-                                 (vec (range dim))
-                                 (sequential? arg)
-                                 (do
-                                   (when-not-error (apply < arg)
-                                     "Argument is not monotonicly increasing"
-                                     {:argument arg})
-                                   (when-not-error (> (long dim)
-                                                      (long (apply max 0 arg)))
-                                     "Argument out of range of dimension"
-                                     {:dimension dim
-                                      :argument arg})
-                                   (vec arg))
-                                 (number? arg) arg
-                                 ;;Is this something shape-able
-                                 (vector? (m/shape arg))
-                                 (let [arg-shape (m/shape arg)]
-                                   (when-not (= 1 (count arg-shape))
-                                     (throw (ex-info "Index arguments must be vectors"
-                                                     {:arg-shape arg-shape})))
-                                   arg)
-                                 :else
-                                 (throw (ex-info "argument to select of incorrect type"
-                                                 {:arg arg}))))
-                             shape args)
+          rev-args (->> (arg-processor shape args)
                         reversev)
           ;;Generate sequence of partial sums
           rev-shape-products (reduce (fn [sums item]
@@ -546,7 +574,7 @@ https://cloojure.github.io/doc/core.matrix/clojure.core.matrix.html#var-select"
                                       (* (long (or prev-shape-product 1))
                                          (long (cond
                                                  (number? arg) arg
-                                                 (vector? arg) (first arg)
+                                                 (= :monotonically-increasing (get arg :type)) (long (get arg :start))
                                                  ;;If we are doing indirect indexing then assume 0 relative index
                                                  :else
                                                  0)))))
@@ -560,10 +588,22 @@ https://cloojure.github.io/doc/core.matrix/clojure.core.matrix.html#var-select"
                            reversev)
           new-shape (->> rev-arg-shape-strides
                          (map #(let [item (first %)]
-                                 (if (vector? item)
-                                   (count item)
+                                 (if (= :monotonically-increasing (get item :type))
+                                   (long (get item :count))
                                    item)))
                          reversev)]
       {:dimensions {:shape new-shape
                     :strides new-strides}
        :elem-offset elem-addr})))
+
+
+(defn select
+  "Limited implementation of the core.matrix select function call.  Each dimension must have an
+entry and each entry may be:
+:all
+monotonically increasing inclusive range
+Index tensor (has exactly 1 dimension and it itself has a direct non-strided shape).
+see:
+https://cloojure.github.io/doc/core.matrix/clojure.core.matrix.html#var-select"
+  [dimensions & args]
+  (select-detail dimensions args))
