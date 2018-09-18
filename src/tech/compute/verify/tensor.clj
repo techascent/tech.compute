@@ -26,22 +26,22 @@
    (let [tensor (ct/->tensor (partition 3 (range 9)))]
      (is (= (ct/ecount tensor) 9))
      (is (m/equals (range 9)
-                   (ct/to-double-array tensor)))
+                   (ct/to-float-array tensor)))
      (ct/assign! tensor 1)
      (is (m/equals (repeat 9 1)
-                   (ct/to-double-array tensor)))
+                   (ct/to-float-array tensor)))
      (let [rows (ct/rows tensor)
            columns (ct/columns tensor)]
        (doseq [row rows]
          (ct/assign! row 2))
        (is (m/equals (repeat 9 2)
-                     (ct/to-double-array tensor)))
+                     (ct/to-float-array tensor)))
        (let [[c1 c2 c3] columns]
          (ct/assign! c1 1)
          (ct/assign! c2 2)
          (ct/assign! c3 3))
        (is (m/equals (flatten (repeat 3 [1 2 3]))
-                     (ct/to-double-array tensor)))))))
+                     (ct/to-float-array tensor)))))))
 
 
 (defn assign-marshal

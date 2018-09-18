@@ -408,6 +408,11 @@ as one expects.  This means actually 2 conditions are checked:
   (to-array-of-type tensor :float64))
 
 
+(defn to-float-array
+  ^floats [tensor]
+  (to-array-of-type tensor :float32))
+
+
 (defn to-core-matrix
   [^Tensor tensor]
   (let [retval (m/new-array :vectorz (get (tensor->dimensions tensor) :shape))
