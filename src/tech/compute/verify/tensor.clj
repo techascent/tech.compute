@@ -52,16 +52,16 @@ for the cuda backend."
    driver datatype
    (let [tensor (ct/->tensor (partition 3 (range 9)))
          intermediate (ct/new-tensor [3 3] :datatype :int32)
-         final (ct/new-tensor [3 3] :datatype :float64)]
+         final (ct/new-tensor [3 3] :datatype :float32)]
      (ct/assign! intermediate tensor)
      (ct/assign! final intermediate)
      (is (m/equals (range 9)
-                   (ct/to-double-array final)))
+                   (ct/to-float-array final)))
      (let [bcast-tensor (ct/->tensor [5 6 7])
            dest-tensor (ct/new-tensor [3 3])]
        (ct/assign! dest-tensor bcast-tensor)
        (is (m/equals (flatten (repeat 3 [5 6 7]))
-                     (ct/to-double-array dest-tensor)))))))
+                     (ct/to-float-array dest-tensor)))))))
 
 
 (defn unary-op
