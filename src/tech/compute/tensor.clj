@@ -1052,4 +1052,5 @@ projecting to the surface of the hypersphere like normalize does, do a <= operat
 
 (alter-var-root #'*stream* (fn [_]
                              (require 'tech.compute.cpu.driver)
+                             (require 'tech.compute.cpu.tensor-math)
                              ((resolve 'tech.compute.cpu.driver/default-cpu-stream))))
