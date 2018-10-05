@@ -142,4 +142,4 @@ The rules for broadcasting in the tensor system are:
 3. While indexing through the specific operand, take the remainder of the dimension index with the specific operands index.
 4. The operation's overall element count is (apply * max-shape).
 
-* Reference [cpu](../src/tech/tensor/dimensions.clj#L226) implementation.
+* Reference [cpu](../src/tech/compute/tensor/dimensions.clj#L226) implementation.
