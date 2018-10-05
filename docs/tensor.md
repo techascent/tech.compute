@@ -7,9 +7,8 @@ interpretation of the data will change.  You can also offset the data then creat
 logically the same as a tensor created at the base address of the data.
 *  Multiple datatypes (including marshalling assignments; assignment involving for instance an integer buffer and a float buffer).
 *  Simple assignment inter-device.
-*  Support for a generalized form of broadcasting including broadcasting that would result in summations.
-*  Classes of elemental operations - unary, binary, ternary.  Unary and binary operations allow summation operations.  Non-summation operations
-are indicated to backends allowing for greater parallelism.
+*  Support for a generalized form of broadcasting including broadcasting that would result in a reduction.
+*  Classes of elemental operations - unary, binary, ternary.  Unary and binary operations allow reductions operations.  Non-reduction operations are indicated to backends allowing for greater parallelism.
 *  As much implementation as possible moved out of backend code allowing precise reuse of concepts and algorithms.
 
 
