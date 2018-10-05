@@ -1,5 +1,9 @@
 # tech.compute
 
+
+[![Clojars Project](https://clojars.org/techascent/tech.compute/latest-version.svg)](https://clojars.org/techascent/tech.compute)
+
+
 Library designed to provide a generic compute abstraction to allow
 some level of shared implementation between a cpu, cuda, openCL,
 webworkers, etc. design.  This system is not specific to neural networks
