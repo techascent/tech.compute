@@ -185,7 +185,9 @@ of execution before continuing.  Both streams must be of the same driver."))
   (let [original-size (dtype/ecount device-buffer)
         new-max-length (- original-size offset)]
     (when-not (<= length new-max-length)
-      (throw (Exception. "Sub buffer out of range.")))
+      (throw (ex-info "Sub buffer out of range."
+                      {:required new-max-length
+                       :current length})))
     (sub-buffer-impl device-buffer offset length)))
 
 

@@ -90,6 +90,7 @@
 
 (deftest default-tensor-stream
   (testing "Default stream binding; main thread cpu stream."
+    (tt/enable-cpu-tensors!)
     (let [tens-a (tt/->tensor [1 2 3])
           double-data (tt/to-double-array tens-a)]
       (is (= [1.0 2.0 3.0]

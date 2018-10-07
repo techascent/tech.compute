@@ -1050,7 +1050,11 @@ projecting to the surface of the hypersphere like normalize does, do a <= operat
 (set! *unchecked-math* false)
 
 
-(alter-var-root #'*stream* (fn [_]
-                             (require 'tech.compute.cpu.driver)
-                             (require 'tech.compute.cpu.tensor-math)
-                             ((resolve 'tech.compute.cpu.driver/default-cpu-stream))))
+(defn enable-cpu-tensors!
+  "Enables a version of the tensors that run on the cpu and that use netlib blas
+  for operations."
+  []
+  (alter-var-root #'*stream* (fn [_]
+                               (require 'tech.compute.cpu.driver)
+                               (require 'tech.compute.cpu.tensor-math)
+                               ((resolve 'tech.compute.cpu.driver/default-cpu-stream)))))
