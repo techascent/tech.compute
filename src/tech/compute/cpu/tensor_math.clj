@@ -3,7 +3,6 @@
             [tech.datatype.java-primitive :as primitive]
             [tech.datatype.java-unsigned :as unsigned]
             [tech.compute.tensor.math :as tm]
-            [clojure.math.combinatorics :as combo]
             [tech.compute.driver :as compute-drv]
             [think.parallel.core :as parallel]
             [clojure.core.matrix.macros :refer [c-for]]
@@ -136,6 +135,18 @@
       (primitive/->buffer-backing-store ~item))))
 
 
+(defmacro b-put
+  [buffer idx value]
+  `(.put ~buffer
+         (+ ~idx (.position ~buffer))
+         ~value))
+
+
+(defmacro b-get
+  [buffer idx]
+  `(.get ~buffer (+ ~idx (.position ~buffer))))
+
+
 (defmacro ^:private assign-constant-impl
   [datatype]
   `(fn [buffer# dimensions# value# n-elems#]
@@ -145,7 +156,7 @@
            value# (unsigned/datatype->jvm-cast-fn :ignored ~datatype value#)]
        (parallel/parallel-for
         idx# n-elems#
-        (.put buffer#
+        (b-put buffer#
               (.idx_to_address idx->address# idx#)
               value#)))))
 
@@ -186,14 +197,14 @@
              n-elems# (long n-elems#)]
          (parallel/parallel-for
           idx# n-elems#
-          (.put dest# (.idx_to_address dest-idx->address# idx#)
+          (b-put dest# (.idx_to_address dest-idx->address# idx#)
                 (primitive/datatype->unchecked-cast-fn
                  ~rhs-dtype
                  ~jvm-dtype
                  (unsigned/datatype->unchecked-cast-fn
                   ~rhs-jvm-dtype
                   ~rhs-dtype
-                  (.get src# (.idx_to_address src-idx->address# idx#))))))))))
+                  (b-get src# (.idx_to_address src-idx->address# idx#))))))))))
 
 
 (defmacro ^:private generate-all-marshalling-assign-fns
@@ -236,7 +247,7 @@
              dest-alpha# (unsigned/datatype->cast-fn :ignored ~datatype dest-alpha#)]
          (c-for [idx# 0 (< idx# n-elems#) (inc idx#)]
                 (let [dest-idx# (.idx_to_address dest-idx->address# idx#)]
-                  (.put dest# dest-idx#
+                  (b-put dest# dest-idx#
                         (primitive/datatype->unchecked-cast-fn
                          :float64
                          ~src-jvm-dtype
@@ -246,7 +257,7 @@
                            (unsigned/datatype->unchecked-cast-fn
                             ~src-jvm-dtype
                             ~datatype
-                            (.get dest# dest-idx#))
+                            (b-get dest# dest-idx#))
                            dest-alpha#))))))))))
 
 
@@ -266,7 +277,7 @@
              n-elems# (long n-elems#)]
          (parallel/parallel-for
           idx# n-elems#
-          (.put dest# (.idx_to_address dest-idx->address# idx#)
+          (b-put dest# (.idx_to_address dest-idx->address# idx#)
                 (primitive/datatype->unchecked-cast-fn
                  :float64
                  ~src-jvm-dtype
@@ -275,7 +286,7 @@
                   (* (unsigned/datatype->unchecked-cast-fn
                       ~src-jvm-dtype
                       ~datatype
-                      (.get x# (.idx_to_address x-idx->address# idx#)))
+                      (b-get x# (.idx_to_address x-idx->address# idx#)))
                      x-alpha#)))))))))
 
 
@@ -343,7 +354,7 @@
              dest-alpha# (unsigned/datatype->cast-fn :ignored ~datatype dest-alpha#)]
          (c-for [idx# 0 (< idx# n-elems#) (inc idx#)]
                 (let [dest-idx# (.idx_to_address dest-idx->address# idx#)]
-                  (.put dest# dest-idx#
+                  (b-put dest# dest-idx#
                         (primitive/datatype->unchecked-cast-fn
                          ~datatype
                          ~src-jvm-dtype
@@ -351,7 +362,7 @@
                                              (* (unsigned/datatype->unchecked-cast-fn
                                                  ~src-jvm-dtype
                                                  ~datatype
-                                                 (.get dest# dest-idx#)) dest-alpha#)
+                                                 (b-get dest# dest-idx#)) dest-alpha#)
                                              scalar#)))))))))
 
 
@@ -409,13 +420,13 @@
         idx# (long n-elems#)
         (let [dest-idx# (.idx_to_address dest-idx->address# idx#)
               x-idx# (.idx_to_address x-idx->address# idx#)]
-          (.put dest# dest-idx#
+          (b-put dest# dest-idx#
                         (store-datatype-cast-fn
                          ~datatype
                          (perform-op-rev-ops ~operation ~reverse-operands?
                                              (* (read-datatype-cast-fn
                                                  ~datatype
-                                                 (.get x# x-idx#)) x-alpha#)
+                                                 (b-get x# x-idx#)) x-alpha#)
                                              scalar#))))))))
 
 
@@ -448,17 +459,17 @@
        (c-for [idx# 0 (< idx# n-elems#) (inc idx#)]
               (let [dest-idx# (.idx_to_address dest-idx->address# idx#)
                     y-idx# (.idx_to_address y-idx->address# idx#)]
-                (.put dest# dest-idx#
+                (b-put dest# dest-idx#
                               (store-datatype-cast-fn
                                ~datatype
                                (perform-op-rev-ops ~operation ~reverse-operands?
                                                    (* (read-datatype-cast-fn
                                                        ~datatype
-                                                       (.get dest# dest-idx#))
+                                                       (b-get dest# dest-idx#))
                                                       dest-alpha#)
                                                    (* (read-datatype-cast-fn
                                                        ~datatype
-                                                       (.get y# y-idx#))
+                                                       (b-get y# y-idx#))
                                                       y-alpha#)))))))))
 
 
@@ -497,16 +508,16 @@
         (let [dest-idx# (.idx_to_address dest-idx->address# idx#)
               x-idx# (.idx_to_address x-idx->address# idx#)
               y-idx# (.idx_to_address y-idx->address# idx#)]
-          (.put dest# dest-idx#
+          (b-put dest# dest-idx#
                         (store-datatype-cast-fn
                          ~datatype
                          (perform-operation-impl ~operation
                                                  (* (read-datatype-cast-fn
                                                      ~datatype
-                                                     (.get x# x-idx#)) x-alpha#)
+                                                     (b-get x# x-idx#)) x-alpha#)
                                                  (* (read-datatype-cast-fn
                                                      ~datatype
-                                                     (.get y# y-idx#)) y-alpha#)))))))))
+                                                     (b-get y# y-idx#)) y-alpha#)))))))))
 
 
 (defmacro binary-op-table-impl
@@ -549,18 +560,18 @@
          :select
          (parallel/parallel-for
           idx# n-elems#
-          (.put dest# (.idx_to_address d-addr# idx#)
+          (b-put dest# (.idx_to_address d-addr# idx#)
                 (store-datatype-cast-fn
                  ~datatype
                  (select-impl (* x-alpha# (read-datatype-cast-fn
                                            ~datatype
-                                           (.get x# (.idx_to_address x-addr# idx#))))
+                                           (b-get x# (.idx_to_address x-addr# idx#))))
                               (* y-alpha# (read-datatype-cast-fn
                                            ~datatype
-                                           (.get y# (.idx_to_address y-addr# idx#))))
+                                           (b-get y# (.idx_to_address y-addr# idx#))))
                               (* z-alpha# (read-datatype-cast-fn
                                            ~datatype
-                                           (.get z# (.idx_to_address z-addr# idx#))))
+                                           (b-get z# (.idx_to_address z-addr# idx#))))
                               ))))))))
 
 
@@ -594,10 +605,10 @@
          :select
          (parallel/parallel-for
           idx# n-elems#
-          (let [arg-vec# [(* x-alpha# (.get x# (.idx_to_address x-addr# idx#)))
-                          (* y-alpha# (.get y# (.idx_to_address y-addr# idx#)))
+          (let [arg-vec# [(* x-alpha# (b-get x# (.idx_to_address x-addr# idx#)))
+                          (* y-alpha# (b-get y# (.idx_to_address y-addr# idx#)))
                           constant#]]
-           (.put dest# (.idx_to_address d-addr# idx#)
+           (b-put dest# (.idx_to_address d-addr# idx#)
                  (store-datatype-cast-fn
                   ~datatype
                   (select-impl (unsigned/datatype->unchecked-cast-fn
@@ -631,10 +642,10 @@
          :select
          (parallel/parallel-for
           idx# n-elems#
-          (let [arg-vec# [(* x-alpha# (.get x# (.idx_to_address x-addr# idx#)))
+          (let [arg-vec# [(* x-alpha# (b-get x# (.idx_to_address x-addr# idx#)))
                           constant-1#
                           constant-2#]]
-           (.put dest# (.idx_to_address d-addr# idx#)
+           (b-put dest# (.idx_to_address d-addr# idx#)
                  (store-datatype-cast-fn
                   ~datatype
                   (select-impl (unsigned/datatype->unchecked-cast-fn
@@ -674,51 +685,51 @@
   (condp = op
     :min `(loop [min-val# (* ~in-alpha (read-datatype-cast-fn
                                         ~datatype
-                                        (.get ~input
+                                        (b-get ~input
                                               (.idx_to_address ~addr ~idx-start))))
                  idx# (+ ~idx-start 1)]
             (if (< idx# ~idx-stop)
               (recur (min min-val# (* ~in-alpha (read-datatype-cast-fn
                                                  ~datatype
-                                                 (.get ~input
+                                                 (b-get ~input
                                                        (.idx_to_address ~addr idx#)))))
                      (inc idx#))
               min-val#))
     :max `(loop [max-val# (* ~in-alpha (read-datatype-cast-fn
                                         ~datatype
-                                        (.get ~input (.idx_to_address ~addr
+                                        (b-get ~input (.idx_to_address ~addr
                                                                       ~idx-start))))
                  idx# (+ ~idx-start 1)]
             (if (< idx# ~idx-stop)
               (recur (max max-val# (* ~in-alpha (read-datatype-cast-fn
                                                  ~datatype
-                                                 (.get ~input
+                                                 (b-get ~input
                                                        (.idx_to_address ~addr idx#)))))
                      (inc idx#))
               max-val#))
     :sum `(loop [sum-val# (* ~in-alpha (read-datatype-cast-fn
                                         ~datatype
-                                        (.get ~input
+                                        (b-get ~input
                                               (.idx_to_address ~addr ~idx-start))))
                  idx# (+ ~idx-start 1)]
             (if (< idx# ~idx-stop)
               (recur (+ sum-val# (* ~in-alpha (read-datatype-cast-fn
                                                ~datatype
-                                               (.get ~input
+                                               (b-get ~input
                                                      (.idx_to_address ~addr idx#)))))
                      (inc idx#))
               sum-val#))
     :mean `(loop [sum-val# (* ~in-alpha
                               (read-datatype-cast-fn
                                ~datatype
-                               (.get ~input
+                               (b-get ~input
                                      (.idx_to_address ~addr ~idx-start))))
                  idx# (+ ~idx-start 1)]
             (if (< idx# ~idx-stop)
               (recur (+ sum-val# (* ~in-alpha
                                     (read-datatype-cast-fn
                                      ~datatype
-                                     (.get ~input
+                                     (b-get ~input
                                            (.idx_to_address ~addr idx#)))))
                      (inc idx#))
               (/ sum-val#
@@ -726,21 +737,21 @@
     :magnitude `(loop [sum-val# (square-expr (* ~in-alpha
                                                 (read-datatype-cast-fn
                                                  ~datatype
-                                                 (.get ~input (.idx_to_address
+                                                 (b-get ~input (.idx_to_address
                                                                ~addr ~idx-start)))))
                        idx# (+ ~idx-start 1)]
                   (if (< idx# ~idx-stop)
                     (recur (+ sum-val# (square-expr (* ~in-alpha
                                                        (read-datatype-cast-fn
                                                         ~datatype
-                                                        (.get ~input (.idx_to_address
+                                                        (b-get ~input (.idx_to_address
                                                                       ~addr idx#))))))
                            (inc idx#))
                     (Math/sqrt sum-val#)))
     :magnitude-squared `(loop [sum-val# (square-expr (* ~in-alpha
                                                         (read-datatype-cast-fn
                                                          ~datatype
-                                                         (.get ~input
+                                                         (b-get ~input
                                                                (.idx_to_address
                                                                 ~addr ~idx-start)))))
                                idx# (+ ~idx-start 1)]
@@ -749,7 +760,7 @@
                                                 (* ~in-alpha
                                                    (read-datatype-cast-fn
                                                     ~datatype
-                                                    (.get ~input
+                                                    (b-get ~input
                                                           (.idx_to_address
                                                            ~addr idx#))))))
                                    (inc idx#))
@@ -773,7 +784,7 @@
         par-idx# parallelism#
         (let [iter-start# (* par-idx# iter-amount#)
               iter-stop# (+ iter-start# iter-amount#)]
-         (.put output# (.idx_to_address output-addr# par-idx#)
+         (b-put output# (.idx_to_address output-addr# par-idx#)
                  (store-datatype-cast-fn ~datatype
                                     (do-unary-reduce-op ~datatype ~op input# input-addr# input-alpha#
                                                         iter-start# iter-stop#))))))))
@@ -1017,13 +1028,13 @@
           (c-for [idx 0 (< idx elem-count) (inc idx)]
                  (let [next-rand (+ (* multiplier (.nextGaussian rand-gen))
                                     mean)]
-                   (.put rand-view idx next-rand))))
+                   (b-put rand-view idx next-rand))))
         (= (:type distribution) :flat)
         (let [minimum (float (:minimum distribution))
               maximum (float (:maximum distribution))
               range (- maximum minimum)]
          (c-for [idx 0 (< idx elem-count) (inc idx)]
-                (.put rand-view idx (+ minimum
+                (b-put rand-view idx (+ minimum
                                          (* (.nextFloat rand-gen)
                                             range)))))
         :else

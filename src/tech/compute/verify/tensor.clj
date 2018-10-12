@@ -3,6 +3,7 @@
             [tech.compute.tensor.dimensions :as ct-dims]
             [tech.compute.driver :as drv]
             [tech.compute.tensor.utils :as tm-utils]
+            [tech.datatype.core :as dtype]
             [clojure.test :refer :all]
             [clojure.core.matrix :as m]
             [clojure.core.matrix.stats :as stats]
@@ -80,10 +81,12 @@ for the cuda backend."
            tens-src (ct/->tensor src-data)
            tens-b (ct/->tensor src-data)]
        (ct/unary-op! tens-b 1.0 tens-src :exp)
-       (is (m/equals (mapv #(tm-utils/dtype-cast (Math/exp (double %)) datatype) src-data)
+       (is (m/equals (mapv #(tm-utils/dtype-cast (Math/exp (double %)) datatype)
+                           src-data)
                      (ct/to-double-array tens-b)))
        (ct/unary-op! tens-b 1.0 tens-src :sqrt)
-       (is (m/equals (mapv #(tm-utils/dtype-cast (Math/sqrt (double %)) datatype) src-data)
+       (is (m/equals (mapv #(tm-utils/dtype-cast (Math/sqrt (double %)) datatype)
+                           src-data)
                      (ct/to-double-array tens-b)))))))
 
 
@@ -385,10 +388,12 @@ for the cuda backend."
          g-pix (int 2)
          b-pix (int 3)
          ;;Load a single image to r,g,b planes
-         rgba (+ r-pix
-                 (bit-shift-left g-pix 8)
-                 (bit-shift-left b-pix 16)
-                 (bit-shift-left (int 255) 24))
+         rgba (dtype/unchecked-cast
+               (+ r-pix
+                  (bit-shift-left g-pix 8)
+                  (bit-shift-left b-pix 16)
+                  (bit-shift-left (int 255) 24))
+               datatype)
          img-dim 4
          img-tensor (ct/->tensor
                      (->> (repeat (* img-dim img-dim) rgba)

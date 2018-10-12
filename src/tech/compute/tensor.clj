@@ -40,7 +40,6 @@ In general we want as much error checking and analysis done in this file as oppo
             [mikera.vectorz.matrix-api]
             [clojure.core.matrix :as m]
             [think.resource.core :as resource]
-            [clojure.math.combinatorics :as combo]
             [tech.compute.tensor.math :as tm]
             [tech.compute.tensor.utils :as tm-utils]
             [tech.compute.tensor.dimensions :refer [when-not-error] :as dims]))
@@ -272,18 +271,29 @@ that rerequires the items to have the same element count."
     (ensure-same-device dest src)
     (ensure-same-driver dest src)))
 
+(defonce crap-atom (atom {}))
+
+(defn- all-combinations
+  [item-seq]
+  (let [item (first item-seq)
+        rest-items (rest item-seq)]
+    (if (seq rest-items)
+      (concat (map vector (repeat item) rest-items)
+              (lazy-seq (all-combinations rest-items)))
+      nil)))
 
 (defn- check-partial-alias
   [& args]
+  (reset! crap-atom args)
   (let [partially-overlapping-args
         (->> args
-             (map #(tensor->buffer ^Tensor %))
-             (#(combo/combinations % 2))
+             (map #(tensor->buffer %))
+             all-combinations
              (filter #(apply compute-drv/partially-alias? %))
              seq)]
     (when-not-error (nil? partially-overlapping-args)
       "Partially overlapping arguments detected."
-      {})))
+      {:args (vec partially-overlapping-args)})))
 
 
 (defn construct-tensor
