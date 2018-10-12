@@ -249,6 +249,9 @@ Use with care; the synchonization primitives will just hang with this stream."
 (implement-pos-length DoubleBuffer :float64)
 
 
+(declare default-cpu-stream)
+
+
 (extend-type TypedBuffer
   drv/PBuffer
   (sub-buffer-impl [buffer offset length]
@@ -271,7 +274,14 @@ Use with care; the synchonization primitives will just hang with this stream."
                       (get-offset rhs) (get-length rhs)))))
   ;;For uniformity all host/device buffers must implement the resource protocol.
   resource/PResource
-  (release-resource [_]))
+  (release-resource [_])
+  drv/PDeviceProvider
+  (get-device [buffer]
+    (drv/get-device (default-cpu-stream)))
+  drv/PDriverProvider
+  (get-driver [buffer]
+    (-> (drv/get-device buffer)
+        drv/get-driver)))
 
 
 (def driver

@@ -12,6 +12,7 @@
             [tech.compute.tensor :as ct]
             [tech.compute.tensor.dimensions :as ct-dims]
             [clojure.core.matrix.stats :as stats]
+            [clojure.core.matrix :as m]
             [tech.compute.cpu.driver :as cpu-driver])
   (:import [tech.compute.cpu.driver CPUStream]
            [com.github.fommil.netlib BLAS]
@@ -1062,3 +1063,11 @@
            stream# (drv/create-stream :device device#)]
        (ct/with-stream stream#
          ~@body))))
+
+
+(defn typed-bufferable->tensor
+  "If the typed buffer is not array backend then gemm, gemv will not work."
+  [item]
+  (let [typed-buffer (unsigned/->typed-buffer item)]
+    (ct/construct-tensor (ct-dims/dimensions (ct/shape item))
+                         typed-buffer)))

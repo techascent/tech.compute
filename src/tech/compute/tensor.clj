@@ -1,16 +1,18 @@
 (ns tech.compute.tensor
-  "Tensor library used to implement the basic math abstraction in cortex.  This abstraction is
-  meant to provide a language in which to implement new things but that explicitly avoids access
-  to certain parts of the compute ecosystem that the engine driving the ecosystem is expected to
-  manage.  Clients should not, for instance, access the stream or the datatype directly.
+  "Tensor library used to implement the basic math abstraction in cortex.  This
+  abstraction is meant to provide a language in which to implement new things but that
+  explicitly avoids access to certain parts of the compute ecosystem that the engine
+  driving the ecosystem is expected to manage.  Clients should not, for instance, access
+  the stream or the datatype directly.
 
-There is an implicit assumption throughout this file that implementations will loop through
-  smaller entities instead of throwing an exception if sizes don't match.  This is referred to
-  as broadcasting in numpy (https://docs.scipy.org/doc/numpy/user/basics.broadcasting.html).
+There is an implicit assumption throughout this file that implementations will loop
+  through smaller entities instead of throwing an exception if sizes don't match.  This
+  is referred to as broadcasting in numpy
+  (https://docs.scipy.org/doc/numpy/user/basics.broadcasting.html).
 
-It does mean, however, that certain conditions that would actually be error cases are harder to
-  detect because one has to check for remainders being zero (which potentially could cause a
-  divide by zero error) instead of just checking for equality.
+It does mean, however, that certain conditions that would actually be error cases are
+  harder to detect because one has to check for remainders being zero (which potentially
+  could cause a divide by zero error) instead of just checking for equality.
 
 
 For binary operations there are four forms:
@@ -23,16 +25,16 @@ result[idx] = a*x[idx] op b*y[idx]
 Op may be: [:+ :* :/].
 
 In the non-indexed cases the element counts of y or x may differ but they need to be
-  commensurate meaning that the smaller evenly divides the larger.  When writing to result it is
-  important that result is as large as the largest.  This is a relaxation of the numpy
-  broadcasting rules to allow more forms of broadcasting; the check is that the remainder is
-  zero; not that the smaller dimension is 1.
+  commensurate meaning that the smaller evenly divides the larger.  When writing to
+  result it is important that result is as large as the largest.  This is a relaxation
+  of the numpy broadcasting rules to allow more forms of broadcasting; the check is that
+  the remainder is zero; not that the smaller dimension is 1.
 
 
-In general we want as much error checking and analysis done in this file as opposed to at the
-  implementation level (compute stream level) so that different implementations of this
-  duplicate the least number of possible operations and so their edge cases agree to the extent
-  possible."
+In general we want as much error checking and analysis done in this file as opposed to
+  at the implementation level (compute stream level) so that different implementations
+  of this duplicate the least number of possible operations and so their edge cases
+  agree to the extent possible."
   (:require [tech.compute.driver :as compute-drv]
             [tech.datatype.core :as dtype]
             [tech.datatype.base :as dtype-base]
@@ -65,7 +67,8 @@ In general we want as much error checking and analysis done in this file as oppo
 
 (defn shape
   [tensor]
-  (mp/get-shape tensor))
+  (or (mp/get-shape tensor)
+      [(mp/element-count tensor)]))
 
 (defn as-vector
   [tensor]
@@ -171,13 +174,13 @@ that rerequires the items to have the same element count."
 
 
 ;;Tensors are a tuple of device (driver for now) dimensions and index system and buffer.
-(defrecord Tensor [device dimensions buffer]
+(defrecord Tensor [dimensions buffer]
   dtype-base/PDatatype
   (get-datatype [tensor] (dtype/get-datatype (:buffer tensor)))
   compute-drv/PDeviceProvider
-  (get-device [tensor] device)
+  (get-device [tensor] (compute-drv/get-device buffer))
   compute-drv/PDriverProvider
-  (get-driver [tensor] (compute-drv/get-driver device))
+  (get-driver [tensor] (compute-drv/get-driver buffer))
   mp/PElementCount
   (element-count [tensor]
     (dims/ecount dimensions))
@@ -297,17 +300,17 @@ that rerequires the items to have the same element count."
 
 
 (defn construct-tensor
-  ^Tensor [device dimensions buffer]
+  ^Tensor [dimensions buffer]
   (let [buffer-ecount (ecount buffer)
         shape (dims/shape dimensions)]
-    (->Tensor device dimensions buffer)))
+    (->Tensor dimensions buffer)))
 
 
 (defn reinterpret-tensor
   "Create a new tensor with new dimensions.  This is like an in place reinterpretation of the
   data."
   ^Tensor [^Tensor old-tensor new-dimensions]
-  (construct-tensor (.device old-tensor) new-dimensions
+  (construct-tensor new-dimensions
                     (:buffer old-tensor)))
 
 
@@ -390,7 +393,7 @@ as one expects.  This means actually 2 conditions are checked:
 
 
 (defn copy-to-java-type
-  [dest ^Tensor src]
+  [dest ^Tensor src & {:keys [unchecked?]}]
   (resource/with-resource-context
    (let [tensor (make-dense src)
          n-elems (ecount tensor)
@@ -403,7 +406,7 @@ as one expects.  This means actually 2 conditions are checked:
                                     0 host-buffer 0 n-elems)
      ;;Block until the copy completes.
      (compute-drv/sync-with-host stream)
-     (dtype/copy! host-buffer 0 dest 0 n-elems)
+     (dtype/copy! host-buffer 0 dest 0 n-elems {:unchecked? unchecked?})
      dest)))
 
 
@@ -438,7 +441,7 @@ as one expects.  This means actually 2 conditions are checked:
 (defn ->tensor
   "Create a tensor from the data.  The shape of the data combined with the batch size
 will determine the shape of the outgoing tensor."
-  [data & {:keys [datatype]
+  [data & {:keys [datatype unchecked?]
            :or {datatype *datatype*}}]
   (let [stream (check-stream)
         data-shape (m/shape data)
@@ -450,12 +453,12 @@ will determine the shape of the outgoing tensor."
         dev-buffer (compute-drv/allocate-device-buffer n-elems datatype
                                                        :device device)
         dimensions (dims/dimensions data-shape)]
-    (dtype/copy-raw->item! data host-buffer 0)
+    (dtype/copy-raw->item! data host-buffer 0 {:unchecked? unchecked?})
     (compute-drv/copy-host->device stream host-buffer 0 dev-buffer 0 n-elems)
     ;;The wait here is so that we can clean up the host buffer.
     (compute-drv/sync-with-host stream)
     (resource/release host-buffer)
-    (construct-tensor device dimensions dev-buffer)))
+    (construct-tensor dimensions dev-buffer)))
 
 
 (defn new-tensor
@@ -468,7 +471,7 @@ will determine the shape of the outgoing tensor."
         device (compute-drv/get-device stream)
         dev-buffer (compute-drv/allocate-device-buffer n-elems datatype
                                                        :device device)
-        retval (construct-tensor device dimensions dev-buffer)]
+        retval (construct-tensor dimensions dev-buffer)]
     (when init-value
       (m/assign! retval init-value))
     retval
