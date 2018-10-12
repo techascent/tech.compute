@@ -1,14 +1,9 @@
 (ns tech.compute.cpu.tensor-math
-  (:require [tech.datatype.core :refer [v-aget v-aset] :as dtype]
-            [tech.datatype.base :as dtype-base]
-            [tech.datatype.marshal :as marshal]
+  (:require [tech.datatype.core :as dtype]
+            [tech.datatype.java-primitive :as primitive]
+            [tech.datatype.java-unsigned :as unsigned]
             [tech.compute.tensor.math :as tm]
             [clojure.math.combinatorics :as combo]
-            [tech.compute.cpu.driver
-             :refer [datatype->view-cast-fn
-                     datatype->cast-fn
-                     array-view-iterator]
-             :as cpu-driver]
             [tech.compute.driver :as compute-drv]
             [think.parallel.core :as parallel]
             [clojure.core.matrix.macros :refer [c-for]]
@@ -17,11 +12,10 @@
             [think.resource.core :as resource]
             [tech.compute.tensor :as ct]
             [tech.compute.tensor.dimensions :as ct-dims]
-            [clojure.core.matrix.stats :as stats])
+            [clojure.core.matrix.stats :as stats]
+            [tech.compute.cpu.driver :as cpu-driver])
   (:import [tech.compute.cpu.driver CPUStream]
            [com.github.fommil.netlib BLAS]
-           [tech.datatype DoubleArrayView FloatArrayView
-            LongArrayView IntArrayView ShortArrayView ByteArrayView]
            [java.security SecureRandom]))
 
 
@@ -134,41 +128,41 @@
                                     (ct-dims/reversev max-shape))))))))
 
 
+(defmacro item->typed-nio-buffer
+  [datatype item]
+  (let [jvm-dtype (unsigned/datatype->jvm-datatype datatype)]
+    `(primitive/datatype->buffer-cast-fn
+      ~jvm-dtype
+      (primitive/->buffer-backing-store ~item))))
+
+
 (defmacro ^:private assign-constant-impl
-  [view-type view-cast-fn _ dtype-cast-fn]
+  [datatype]
+  `(fn [buffer# dimensions# value# n-elems#]
+     (let [n-elems# (long n-elems#)
+           buffer# (item->typed-nio-buffer ~datatype buffer#)
+           idx->address# (get-elem-dims->address dimensions# (get dimensions# :shape))
+           value# (unsigned/datatype->jvm-cast-fn :ignored ~datatype value#)]
+       (parallel/parallel-for
+        idx# n-elems#
+        (.put buffer#
+              (.idx_to_address idx->address# idx#)
+              value#)))))
+
+
+(def all-datatypes (concat primitive/datatypes unsigned/unsigned-datatypes))
+
+
+(defmacro datatype-iterator
+  [iter-macro]
   `(vector
-    (dtype/get-datatype (~dtype-cast-fn 0))
-    (fn [buffer# dimensions# value# n-elems#]
-      (let [n-elems# (long n-elems#)
-            buffer# (~view-cast-fn buffer#)
-            idx->address# (get-elem-dims->address dimensions# (get dimensions# :shape))
-            value# (~dtype-cast-fn value#)]
-        (parallel/parallel-for
-         idx# n-elems#
-         (v-aset buffer# (.idx_to_address idx->address# idx#) value#))))))
+    ~@(for [dtype all-datatypes]
+        `(vector ~dtype (~iter-macro ~dtype)))))
 
 
 (def ^:private assign-constant-map
-  (->> (array-view-iterator assign-constant-impl)
+  (->> (datatype-iterator assign-constant-impl)
        (into {})))
-
-(defmacro ^:private datatype->cast-fn-symbol
-  [dtype]
-  (condp = dtype
-    :int8 `byte
-    :int16 `short
-    :int32 `int
-    :int64 `long
-    :float32 `float
-    :float64 `double))
-
-
-(defn- generate-datatype-combinations
-  []
-  (let [all-dtypes dtype-base/datatypes]
-    (for [lhs all-dtypes
-          rhs all-dtypes]
-      [lhs rhs])))
 
 
 (defn max-shape-from-dimensions
@@ -179,33 +173,40 @@
 
 (defmacro ^:private marshalling-assign-fn
   [lhs-dtype rhs-dtype]
-  `(fn [dest# dest-dim#
-        src# src-dim#
-        n-elems#]
-     (let [dest# (datatype->view-cast-fn ~lhs-dtype dest#)
-           src# (datatype->view-cast-fn ~rhs-dtype src#)
-           max-shape# (max-shape-from-dimensions dest-dim# src-dim#)
-           dest-idx->address# (get-elem-dims->address dest-dim# max-shape#)
-           src-idx->address# (get-elem-dims->address src-dim# max-shape#)
-           n-elems# (long n-elems#)]
-       (parallel/parallel-for
-        idx# n-elems#
-        (v-aset dest# (.idx_to_address dest-idx->address# idx#)
-                      (datatype->cast-fn
-                       ~lhs-dtype
-                       (v-aget src# (.idx_to_address src-idx->address# idx#))))))))
+  (let [rhs-jvm-dtype (unsigned/datatype->jvm-datatype rhs-dtype)
+        jvm-dtype (unsigned/datatype->jvm-datatype lhs-dtype)]
+    `(fn [dest# dest-dim#
+          src# src-dim#
+          n-elems#]
+       (let [dest# (item->typed-nio-buffer ~lhs-dtype dest#)
+             src# (item->typed-nio-buffer ~rhs-dtype src#)
+             max-shape# (max-shape-from-dimensions dest-dim# src-dim#)
+             dest-idx->address# (get-elem-dims->address dest-dim# max-shape#)
+             src-idx->address# (get-elem-dims->address src-dim# max-shape#)
+             n-elems# (long n-elems#)]
+         (parallel/parallel-for
+          idx# n-elems#
+          (.put dest# (.idx_to_address dest-idx->address# idx#)
+                (primitive/datatype->unchecked-cast-fn
+                 ~rhs-dtype
+                 ~jvm-dtype
+                 (unsigned/datatype->unchecked-cast-fn
+                  ~rhs-jvm-dtype
+                  ~rhs-dtype
+                  (.get src# (.idx_to_address src-idx->address# idx#))))))))))
 
 
 (defmacro ^:private generate-all-marshalling-assign-fns
   []
-  (mapv (fn [[lhs-dtype rhs-dtype :as combo]]
-          [combo `(marshalling-assign-fn ~lhs-dtype ~rhs-dtype)])
-        (generate-datatype-combinations)))
+  (->> unsigned/all-possible-datatype-pairs
+       (map (fn [[lhs-dtype rhs-dtype]]
+              [[lhs-dtype rhs-dtype]
+               `(marshalling-assign-fn ~lhs-dtype ~rhs-dtype)]))
+       (into {})))
 
 
 (def ^:private assign!-map
-  (->> (generate-all-marshalling-assign-fns)
-       (into {})))
+  (generate-all-marshalling-assign-fns))
 
 
 (defmacro ^:private perform-unary-op-impl
@@ -225,46 +226,62 @@
 
 (defmacro ^:private unary-accum!-impl
   [datatype operation]
-  `(fn [dest# dest-dims# dest-alpha#
-        n-elems#]
-     (let [n-elems# (long n-elems#)
-           dest# (datatype->view-cast-fn ~datatype dest#)
-           dest-idx->address# (get-elem-dims->address dest-dims# (get dest-dims# :shape))
-           dest-alpha# (datatype->cast-fn ~datatype dest-alpha#)]
-       (c-for [idx# 0 (< idx# n-elems#) (inc idx#)]
-              (let [dest-idx# (.idx_to_address dest-idx->address# idx#)]
-                (v-aset dest# dest-idx#
-                              (datatype->cast-fn
-                               ~datatype
-                               (perform-unary-op-impl ~operation (* (v-aget dest# dest-idx#)
-                                                                    dest-alpha#)))))))))
+  (let [src-jvm-dtype (unsigned/datatype->jvm-datatype datatype)]
+    `(fn [dest# dest-dims# dest-alpha#
+          n-elems#]
+       (let [n-elems# (long n-elems#)
+             dest# (item->typed-nio-buffer ~datatype dest#)
+             dest-idx->address# (get-elem-dims->address dest-dims#
+                                                        (get dest-dims# :shape))
+             dest-alpha# (unsigned/datatype->cast-fn :ignored ~datatype dest-alpha#)]
+         (c-for [idx# 0 (< idx# n-elems#) (inc idx#)]
+                (let [dest-idx# (.idx_to_address dest-idx->address# idx#)]
+                  (.put dest# dest-idx#
+                        (primitive/datatype->unchecked-cast-fn
+                         :float64
+                         ~src-jvm-dtype
+                         (perform-unary-op-impl
+                          ~operation
+                          (*
+                           (unsigned/datatype->unchecked-cast-fn
+                            ~src-jvm-dtype
+                            ~datatype
+                            (.get dest# dest-idx#))
+                           dest-alpha#))))))))))
 
 
 (defmacro ^:private unary-op!-impl
   [datatype operation]
-  `(fn [dest# dest-dims#
-        x# x-dims# x-alpha#
-        n-elems#]
-     (let [n-elems# (long n-elems#)
-           max-shape# (max-shape-from-dimensions dest-dims# x-dims#)
-           dest# (datatype->view-cast-fn ~datatype dest#)
-           dest-idx->address# (get-elem-dims->address dest-dims# max-shape#)
-           x# (datatype->view-cast-fn ~datatype x#)
-           x-idx->address# (get-elem-dims->address x-dims# max-shape#)
-           x-alpha# (datatype->cast-fn ~datatype x-alpha#)
-           n-elems# (long n-elems#)]
-       (parallel/parallel-for
-        idx# n-elems#
-        (v-aset dest# (.idx_to_address dest-idx->address# idx#)
-                (datatype->cast-fn
-                 ~datatype
-                 (perform-unary-op-impl ~operation (* (v-aget x# (.idx_to_address x-idx->address# idx#))
-                                                      x-alpha#))))))))
+  (let [src-jvm-dtype (unsigned/datatype->jvm-datatype datatype)]
+    `(fn [dest# dest-dims#
+          x# x-dims# x-alpha#
+          n-elems#]
+       (let [n-elems# (long n-elems#)
+             max-shape# (max-shape-from-dimensions dest-dims# x-dims#)
+             dest# (item->typed-nio-buffer ~datatype dest#)
+             dest-idx->address# (get-elem-dims->address dest-dims# max-shape#)
+             x# (item->typed-nio-buffer ~datatype x#)
+             x-idx->address# (get-elem-dims->address x-dims# max-shape#)
+             x-alpha# (unsigned/datatype->cast-fn :ignored ~datatype x-alpha#)
+             n-elems# (long n-elems#)]
+         (parallel/parallel-for
+          idx# n-elems#
+          (.put dest# (.idx_to_address dest-idx->address# idx#)
+                (primitive/datatype->unchecked-cast-fn
+                 :float64
+                 ~src-jvm-dtype
+                 (perform-unary-op-impl
+                  ~operation
+                  (* (unsigned/datatype->unchecked-cast-fn
+                      ~src-jvm-dtype
+                      ~datatype
+                      (.get x# (.idx_to_address x-idx->address# idx#)))
+                     x-alpha#)))))))))
 
 
 (defmacro unary-op-table-impl
   []
-  (->> (for [dtype dtype-base/datatypes
+  (->> (for [dtype all-datatypes
              op ct/unary-operations]
          [[dtype op] {:unary-accum! `(unary-accum!-impl ~dtype ~op)
                       :unary-op! `(unary-op!-impl ~dtype ~op)}])
@@ -282,7 +299,8 @@
     :- `(- ~x ~y)
     :/ `(/ ~x ~y)
     :* `(* ~x ~y)
-    ;;Math/max and friends aren't defined for all primitives leading to reflection warnings.
+    ;;Math/max and friends aren't defined for all primitives leading to reflection
+    ;;warnings.
     :max `(if (> ~x ~y) ~x ~y)
     :min `(if (> ~x ~y) ~y ~x)
     :bit-and `(bit-and (unchecked-int ~x) (unchecked-int ~y))
@@ -313,27 +331,33 @@
 
 (defmacro ^:private binary-accum-constant!-impl
   [datatype operation reverse-operands?]
-  `(fn [dest# dest-dims# dest-alpha#
-        scalar#
-        n-elems#]
-     (let [n-elems# (long n-elems#)
-           dest# (datatype->view-cast-fn ~datatype dest#)
-           dest-idx->address# (get-elem-dims->address dest-dims# (get dest-dims# :shape))
-           scalar# (datatype->cast-fn ~datatype scalar#)
-           dest-alpha# (datatype->cast-fn ~datatype dest-alpha#)]
-       (c-for [idx# 0 (< idx# n-elems#) (inc idx#)]
-              (let [dest-idx# (.idx_to_address dest-idx->address# idx#)]
-                (v-aset dest# dest-idx#
-                              (datatype->cast-fn
-                               ~datatype
-                               (perform-op-rev-ops ~operation ~reverse-operands?
-                                                   (* (v-aget dest# dest-idx#) dest-alpha#)
-                                                   scalar#))))))))
+  (let [src-jvm-dtype (unsigned/datatype->jvm-datatype datatype)]
+    `(fn [dest# dest-dims# dest-alpha#
+          scalar#
+          n-elems#]
+       (let [n-elems# (long n-elems#)
+             dest# (item->typed-nio-buffer ~datatype dest#)
+             dest-idx->address# (get-elem-dims->address dest-dims#
+                                                        (get dest-dims# :shape))
+             scalar# (unsigned/datatype->cast-fn :ignored ~datatype scalar#)
+             dest-alpha# (unsigned/datatype->cast-fn :ignored ~datatype dest-alpha#)]
+         (c-for [idx# 0 (< idx# n-elems#) (inc idx#)]
+                (let [dest-idx# (.idx_to_address dest-idx->address# idx#)]
+                  (.put dest# dest-idx#
+                        (primitive/datatype->unchecked-cast-fn
+                         ~datatype
+                         ~src-jvm-dtype
+                         (perform-op-rev-ops ~operation ~reverse-operands?
+                                             (* (unsigned/datatype->unchecked-cast-fn
+                                                 ~src-jvm-dtype
+                                                 ~datatype
+                                                 (.get dest# dest-idx#)) dest-alpha#)
+                                             scalar#)))))))))
 
 
 (defmacro binary-accum-constant-table
   []
-  (->> (for [dtype dtype-base/datatypes
+  (->> (for [dtype all-datatypes
              op ct/binary-operations
              rev-ops? [true false]]
          [[dtype op rev-ops?] `(binary-accum-constant!-impl ~dtype ~op ~rev-ops?)])
@@ -344,6 +368,29 @@
   (binary-accum-constant-table))
 
 
+(defmacro datatype->cast-fn
+  [dtype val]
+  `(unsigned/datatype->cast-fn :ignored ~dtype ~val))
+
+
+(defmacro store-datatype-cast-fn
+  [dtype val]
+  (let [jvm-dtype (unsigned/datatype->jvm-datatype dtype)]
+    `(unsigned/datatype->unchecked-jvm-cast-fn
+      ~dtype
+      ~jvm-dtype
+      ~val)))
+
+
+(defmacro read-datatype-cast-fn
+  [dtype val]
+  (let [jvm-dtype (unsigned/datatype->jvm-datatype dtype)]
+    `(unsigned/datatype->unchecked-cast-fn
+      ~jvm-dtype
+      ~dtype
+      ~val)))
+
+
 (defmacro ^:private binary-op-constant!-impl
   [datatype operation reverse-operands?]
   `(fn [dest# dest-dims#
@@ -352,9 +399,9 @@
         n-elems#]
      (let [n-elems# (long n-elems#)
            max-shape# (max-shape-from-dimensions dest-dims# x-dims#)
-           dest# (datatype->view-cast-fn ~datatype dest#)
+           dest# (item->typed-nio-buffer ~datatype dest#)
            dest-idx->address# (get-elem-dims->address dest-dims# max-shape#)
-           x# (datatype->view-cast-fn ~datatype x#)
+           x# (item->typed-nio-buffer ~datatype x#)
            x-idx->address# (get-elem-dims->address x-dims# max-shape#)
            x-alpha# (datatype->cast-fn ~datatype x-alpha#)
            scalar# (datatype->cast-fn ~datatype scalar#)]
@@ -362,17 +409,19 @@
         idx# (long n-elems#)
         (let [dest-idx# (.idx_to_address dest-idx->address# idx#)
               x-idx# (.idx_to_address x-idx->address# idx#)]
-          (v-aset dest# dest-idx#
-                        (datatype->cast-fn
+          (.put dest# dest-idx#
+                        (store-datatype-cast-fn
                          ~datatype
                          (perform-op-rev-ops ~operation ~reverse-operands?
-                                             (* (v-aget x# x-idx#) x-alpha#)
+                                             (* (read-datatype-cast-fn
+                                                 ~datatype
+                                                 (.get x# x-idx#)) x-alpha#)
                                              scalar#))))))))
 
 
 (defmacro binary-op-constant-table
   []
-  (->> (for [dtype dtype-base/datatypes
+  (->> (for [dtype all-datatypes
              op ct/binary-operations
              rev-ops? [true false]]
          [[dtype op rev-ops?] `(binary-op-constant!-impl ~dtype ~op ~rev-ops?)])
@@ -390,26 +439,32 @@
         n-elems#]
      (let [n-elems# (long n-elems#)
            max-shape# (max-shape-from-dimensions dest-dims# y-dims#)
-           dest# (datatype->view-cast-fn ~datatype dest#)
+           dest# (item->typed-nio-buffer ~datatype dest#)
            dest-idx->address# (get-elem-dims->address dest-dims# max-shape#)
            dest-alpha# (datatype->cast-fn ~datatype dest-alpha#)
-           y# (datatype->view-cast-fn ~datatype y#)
+           y# (item->typed-nio-buffer ~datatype y#)
            y-idx->address# (get-elem-dims->address y-dims# max-shape#)
            y-alpha# (datatype->cast-fn ~datatype y-alpha#)]
        (c-for [idx# 0 (< idx# n-elems#) (inc idx#)]
               (let [dest-idx# (.idx_to_address dest-idx->address# idx#)
                     y-idx# (.idx_to_address y-idx->address# idx#)]
-                (v-aset dest# dest-idx#
-                              (datatype->cast-fn
+                (.put dest# dest-idx#
+                              (store-datatype-cast-fn
                                ~datatype
                                (perform-op-rev-ops ~operation ~reverse-operands?
-                                                   (* (v-aget dest# dest-idx#) dest-alpha#)
-                                                   (* (v-aget y# y-idx#) y-alpha#)))))))))
+                                                   (* (read-datatype-cast-fn
+                                                       ~datatype
+                                                       (.get dest# dest-idx#))
+                                                      dest-alpha#)
+                                                   (* (read-datatype-cast-fn
+                                                       ~datatype
+                                                       (.get y# y-idx#))
+                                                      y-alpha#)))))))))
 
 
 (defmacro binary-accum-table
   []
-  (->> (for [dtype dtype-base/datatypes
+  (->> (for [dtype all-datatypes
              op ct/binary-operations
              rev-ops? [true false]]
          [[dtype op rev-ops?] `(binary-accum!-impl ~dtype ~op ~rev-ops?)])
@@ -429,12 +484,12 @@
         n-elems#]
      (let [n-elems# (long n-elems#)
            max-shape# (max-shape-from-dimensions dest-dims# x-dims# y-dims#)
-           dest# (datatype->view-cast-fn ~datatype dest#)
+           dest# (item->typed-nio-buffer ~datatype dest#)
            dest-idx->address# (get-elem-dims->address dest-dims# max-shape#)
-           x# (datatype->view-cast-fn ~datatype x#)
+           x# (item->typed-nio-buffer ~datatype x#)
            x-idx->address# (get-elem-dims->address x-dims# max-shape#)
            x-alpha# (datatype->cast-fn ~datatype x-alpha#)
-           y# (datatype->view-cast-fn ~datatype y#)
+           y# (item->typed-nio-buffer ~datatype y#)
            y-idx->address# (get-elem-dims->address y-dims# max-shape#)
            y-alpha# (datatype->cast-fn ~datatype y-alpha#)]
        (parallel/parallel-for
@@ -442,17 +497,21 @@
         (let [dest-idx# (.idx_to_address dest-idx->address# idx#)
               x-idx# (.idx_to_address x-idx->address# idx#)
               y-idx# (.idx_to_address y-idx->address# idx#)]
-          (v-aset dest# dest-idx#
-                        (datatype->cast-fn
+          (.put dest# dest-idx#
+                        (store-datatype-cast-fn
                          ~datatype
                          (perform-operation-impl ~operation
-                                                 (* (v-aget x# x-idx#) x-alpha#)
-                                                 (* (v-aget y# y-idx#) y-alpha#)))))))))
+                                                 (* (read-datatype-cast-fn
+                                                     ~datatype
+                                                     (.get x# x-idx#)) x-alpha#)
+                                                 (* (read-datatype-cast-fn
+                                                     ~datatype
+                                                     (.get y# y-idx#)) y-alpha#)))))))))
 
 
 (defmacro binary-op-table-impl
   []
-  (->> (for [dtype dtype-base/datatypes
+  (->> (for [dtype all-datatypes
              op ct/binary-operations]
          [[dtype op] `(binary-op!-impl ~dtype ~op)])
        (into {})))
@@ -479,10 +538,10 @@
            x-addr# (get-elem-dims->address x-dims# max-shape#)
            y-addr# (get-elem-dims->address y-dims# max-shape#)
            z-addr# (get-elem-dims->address z-dims# max-shape#)
-           dest# (datatype->view-cast-fn ~datatype dest#)
-           x# (datatype->view-cast-fn ~datatype x#)
-           y# (datatype->view-cast-fn ~datatype y#)
-           z# (datatype->view-cast-fn ~datatype z#)
+           dest# (item->typed-nio-buffer ~datatype dest#)
+           x# (item->typed-nio-buffer ~datatype x#)
+           y# (item->typed-nio-buffer ~datatype y#)
+           z# (item->typed-nio-buffer ~datatype z#)
            x-alpha# (datatype->cast-fn ~datatype x-alpha#)
            y-alpha# (datatype->cast-fn ~datatype y-alpha#)
            z-alpha# (datatype->cast-fn ~datatype z-alpha#)]
@@ -490,11 +549,19 @@
          :select
          (parallel/parallel-for
           idx# n-elems#
-          (v-aset dest# (.idx_to_address d-addr# idx#)
-                  (datatype->cast-fn ~datatype
-                                     (select-impl (* x-alpha# (v-aget x# (.idx_to_address x-addr# idx#)))
-                                                  (* y-alpha# (v-aget y# (.idx_to_address y-addr# idx#)))
-                                                  (* z-alpha# (v-aget z# (.idx_to_address z-addr# idx#)))))))))))
+          (.put dest# (.idx_to_address d-addr# idx#)
+                (store-datatype-cast-fn
+                 ~datatype
+                 (select-impl (* x-alpha# (read-datatype-cast-fn
+                                           ~datatype
+                                           (.get x# (.idx_to_address x-addr# idx#))))
+                              (* y-alpha# (read-datatype-cast-fn
+                                           ~datatype
+                                           (.get y# (.idx_to_address y-addr# idx#))))
+                              (* z-alpha# (read-datatype-cast-fn
+                                           ~datatype
+                                           (.get z# (.idx_to_address z-addr# idx#))))
+                              ))))))))
 
 
 (defn arg-order->indexes
@@ -516,9 +583,9 @@
            d-addr# (get-elem-dims->address dest-dims# max-shape#)
            x-addr# (get-elem-dims->address x-dims# max-shape#)
            y-addr# (get-elem-dims->address y-dims# max-shape#)
-           dest# (datatype->view-cast-fn ~datatype dest#)
-           x# (datatype->view-cast-fn ~datatype x#)
-           y# (datatype->view-cast-fn ~datatype y#)
+           dest# (item->typed-nio-buffer ~datatype dest#)
+           x# (item->typed-nio-buffer ~datatype x#)
+           y# (item->typed-nio-buffer ~datatype y#)
            x-alpha# (datatype->cast-fn ~datatype x-alpha#)
            y-alpha# (datatype->cast-fn ~datatype y-alpha#)
            arg-indexes# (arg-order->indexes arg-order#)
@@ -527,14 +594,21 @@
          :select
          (parallel/parallel-for
           idx# n-elems#
-          (let [arg-vec# [(* x-alpha# (v-aget x# (.idx_to_address x-addr# idx#)))
-                          (* y-alpha# (v-aget y# (.idx_to_address y-addr# idx#)))
+          (let [arg-vec# [(* x-alpha# (.get x# (.idx_to_address x-addr# idx#)))
+                          (* y-alpha# (.get y# (.idx_to_address y-addr# idx#)))
                           constant#]]
-           (v-aset dest# (.idx_to_address d-addr# idx#)
-                   (datatype->cast-fn ~datatype
-                                      (select-impl (datatype->cast-fn ~datatype (get arg-vec# x-dims#))
-                                                   (datatype->cast-fn ~datatype (get arg-vec# y-dims#))
-                                                   (datatype->cast-fn ~datatype (get arg-vec# z-dims#)))))))))))
+           (.put dest# (.idx_to_address d-addr# idx#)
+                 (store-datatype-cast-fn
+                  ~datatype
+                  (select-impl (unsigned/datatype->unchecked-cast-fn
+                                :ingored ~datatype
+                                (get arg-vec# x-dims#))
+                               (unsigned/datatype->unchecked-cast-fn
+                                :ignored ~datatype
+                                (get arg-vec# y-dims#))
+                               (unsigned/datatype->unchecked-cast-fn
+                                :ignored ~datatype
+                                (get arg-vec# z-dims#)))))))))))
 
 
 (defmacro ^:private ternary-op-constant-constant-impl
@@ -548,8 +622,8 @@
      (let [max-shape# (max-shape-from-dimensions dest-dims# x-dims#)
            d-addr# (get-elem-dims->address dest-dims# max-shape#)
            x-addr# (get-elem-dims->address x-dims# max-shape#)
-           dest# (datatype->view-cast-fn ~datatype dest#)
-           x# (datatype->view-cast-fn ~datatype x#)
+           dest# (item->typed-nio-buffer ~datatype dest#)
+           x# (item->typed-nio-buffer ~datatype x#)
            x-alpha# (datatype->cast-fn ~datatype x-alpha#)
            arg-indexes# (arg-order->indexes arg-order#)
            [x-dims# y-dims# z-dims#] arg-indexes#]
@@ -557,22 +631,32 @@
          :select
          (parallel/parallel-for
           idx# n-elems#
-          (let [arg-vec# [(* x-alpha# (v-aget x# (.idx_to_address x-addr# idx#)))
+          (let [arg-vec# [(* x-alpha# (.get x# (.idx_to_address x-addr# idx#)))
                           constant-1#
                           constant-2#]]
-           (v-aset dest# (.idx_to_address d-addr# idx#)
-                   (datatype->cast-fn ~datatype
-                                      (select-impl (datatype->cast-fn ~datatype (get arg-vec# x-dims#))
-                                                   (datatype->cast-fn ~datatype (get arg-vec# y-dims#))
-                                                   (datatype->cast-fn ~datatype (get arg-vec# z-dims#)))))))))))
+           (.put dest# (.idx_to_address d-addr# idx#)
+                 (store-datatype-cast-fn
+                  ~datatype
+                  (select-impl (unsigned/datatype->unchecked-cast-fn
+                                :ingored ~datatype
+                                (get arg-vec# x-dims#))
+                               (unsigned/datatype->unchecked-cast-fn
+                                :ignored ~datatype
+                                (get arg-vec# y-dims#))
+                               (unsigned/datatype->unchecked-cast-fn
+                                :ignored ~datatype
+                                (get arg-vec# z-dims#))
+                               )))))))))
 
 
 (defmacro ternary-op-iter
   []
-  (->> (for [dtype dtype-base/datatypes]
+  (->> (for [dtype all-datatypes]
          [dtype {:ternary-op! `(ternary-op-impl ~dtype)
                  :ternary-op-constant! `(ternary-op-constant-impl ~dtype)
-                 :ternary-op-constant-constant! `(ternary-op-constant-constant-impl ~dtype)}])
+                 :ternary-op-constant-constant! `(ternary-op-constant-constant-impl
+                                                  ~dtype)
+                 }])
        (into {})))
 
 
@@ -588,43 +672,86 @@
 (defmacro do-unary-reduce-op
   [datatype op input addr in-alpha idx-start idx-stop]
   (condp = op
-    :min `(loop [min-val# (* ~in-alpha (v-aget ~input (.idx_to_address ~addr ~idx-start)))
+    :min `(loop [min-val# (* ~in-alpha (read-datatype-cast-fn
+                                        ~datatype
+                                        (.get ~input
+                                              (.idx_to_address ~addr ~idx-start))))
                  idx# (+ ~idx-start 1)]
             (if (< idx# ~idx-stop)
-              (recur (min min-val# (* ~in-alpha (v-aget ~input (.idx_to_address ~addr idx#))))
+              (recur (min min-val# (* ~in-alpha (read-datatype-cast-fn
+                                                 ~datatype
+                                                 (.get ~input
+                                                       (.idx_to_address ~addr idx#)))))
                      (inc idx#))
               min-val#))
-    :max `(loop [max-val# (* ~in-alpha (v-aget ~input (.idx_to_address ~addr ~idx-start)))
+    :max `(loop [max-val# (* ~in-alpha (read-datatype-cast-fn
+                                        ~datatype
+                                        (.get ~input (.idx_to_address ~addr
+                                                                      ~idx-start))))
                  idx# (+ ~idx-start 1)]
             (if (< idx# ~idx-stop)
-              (recur (max max-val# (* ~in-alpha (v-aget ~input (.idx_to_address ~addr idx#))))
+              (recur (max max-val# (* ~in-alpha (read-datatype-cast-fn
+                                                 ~datatype
+                                                 (.get ~input
+                                                       (.idx_to_address ~addr idx#)))))
                      (inc idx#))
               max-val#))
-    :sum `(loop [sum-val# (* ~in-alpha (v-aget ~input
-                                               (.idx_to_address ~addr ~idx-start)))
+    :sum `(loop [sum-val# (* ~in-alpha (read-datatype-cast-fn
+                                        ~datatype
+                                        (.get ~input
+                                              (.idx_to_address ~addr ~idx-start))))
                  idx# (+ ~idx-start 1)]
             (if (< idx# ~idx-stop)
-              (recur (+ sum-val# (* ~in-alpha (v-aget ~input (.idx_to_address ~addr idx#))))
+              (recur (+ sum-val# (* ~in-alpha (read-datatype-cast-fn
+                                               ~datatype
+                                               (.get ~input
+                                                     (.idx_to_address ~addr idx#)))))
                      (inc idx#))
               sum-val#))
-    :mean `(loop [sum-val# (* ~in-alpha (v-aget ~input (.idx_to_address ~addr ~idx-start)))
+    :mean `(loop [sum-val# (* ~in-alpha
+                              (read-datatype-cast-fn
+                               ~datatype
+                               (.get ~input
+                                     (.idx_to_address ~addr ~idx-start))))
                  idx# (+ ~idx-start 1)]
             (if (< idx# ~idx-stop)
-              (recur (+ sum-val# (* ~in-alpha (v-aget ~input (.idx_to_address ~addr idx#))))
+              (recur (+ sum-val# (* ~in-alpha
+                                    (read-datatype-cast-fn
+                                     ~datatype
+                                     (.get ~input
+                                           (.idx_to_address ~addr idx#)))))
                      (inc idx#))
               (/ sum-val#
                  (- ~idx-stop ~idx-start))))
-    :magnitude `(loop [sum-val# (square-expr (* ~in-alpha (v-aget ~input (.idx_to_address ~addr ~idx-start))))
+    :magnitude `(loop [sum-val# (square-expr (* ~in-alpha
+                                                (read-datatype-cast-fn
+                                                 ~datatype
+                                                 (.get ~input (.idx_to_address
+                                                               ~addr ~idx-start)))))
                        idx# (+ ~idx-start 1)]
                   (if (< idx# ~idx-stop)
-                    (recur (+ sum-val# (square-expr (* ~in-alpha (v-aget ~input (.idx_to_address ~addr idx#)))))
+                    (recur (+ sum-val# (square-expr (* ~in-alpha
+                                                       (read-datatype-cast-fn
+                                                        ~datatype
+                                                        (.get ~input (.idx_to_address
+                                                                      ~addr idx#))))))
                            (inc idx#))
                     (Math/sqrt sum-val#)))
-    :magnitude-squared `(loop [sum-val# (square-expr (* ~in-alpha (v-aget ~input (.idx_to_address ~addr ~idx-start))))
+    :magnitude-squared `(loop [sum-val# (square-expr (* ~in-alpha
+                                                        (read-datatype-cast-fn
+                                                         ~datatype
+                                                         (.get ~input
+                                                               (.idx_to_address
+                                                                ~addr ~idx-start)))))
                                idx# (+ ~idx-start 1)]
                           (if (< idx# ~idx-stop)
                             (recur (+ sum-val# (square-expr
-                                                (* ~in-alpha (v-aget ~input (.idx_to_address ~addr idx#)))))
+                                                (* ~in-alpha
+                                                   (read-datatype-cast-fn
+                                                    ~datatype
+                                                    (.get ~input
+                                                          (.idx_to_address
+                                                           ~addr idx#))))))
                                    (inc idx#))
                             sum-val#))))
 
@@ -633,10 +760,11 @@
   [datatype op]
   `(fn [output# output-dims# input-alpha# input# input-dims#]
      (let [input-shape# (ct-dims/shape input-dims#)
-           output-addr# (get-elem-dims->address output-dims# (ct-dims/shape output-dims#))
+           output-addr# (get-elem-dims->address output-dims#
+                                                (ct-dims/shape output-dims#))
            input-addr# (get-elem-dims->address input-dims# (ct-dims/shape input-dims#))
-           input# (datatype->view-cast-fn ~datatype input#)
-           output# (datatype->view-cast-fn ~datatype output#)
+           input# (item->typed-nio-buffer ~datatype input#)
+           output# (item->typed-nio-buffer ~datatype output#)
            input-alpha# (datatype->cast-fn ~datatype input-alpha#)
            parallelism# (ct-dims/ecount output-dims#)
            iter-amount# (quot (ct-dims/ecount input-dims#)
@@ -645,15 +773,15 @@
         par-idx# parallelism#
         (let [iter-start# (* par-idx# iter-amount#)
               iter-stop# (+ iter-start# iter-amount#)]
-         (v-aset output# (.idx_to_address output-addr# par-idx#)
-                 (datatype->cast-fn ~datatype
+         (.put output# (.idx_to_address output-addr# par-idx#)
+                 (store-datatype-cast-fn ~datatype
                                     (do-unary-reduce-op ~datatype ~op input# input-addr# input-alpha#
                                                         iter-start# iter-stop#))))))))
 
 
 (defmacro unary-reduce-iter
   []
-  (->> (for [dtype dtype-base/datatypes
+  (->> (for [dtype all-datatypes
              reduce-op ct/unary-reduction-operations]
          [[dtype reduce-op] {:unary-reduce! `(unary-reduce-impl ~dtype ~reduce-op)}])
        (into {})))
@@ -665,12 +793,12 @@
 
 (defmacro ^:private blas-macro-iter
   [inner-macro]
-  `{:float64 (~inner-macro marshal/as-double-array-view double .dgemm .dgemv)
-    :float32 (~inner-macro marshal/as-float-array-view float .sgemm .sgemv)})
+  `{:float64 (~inner-macro :float64 .dgemm .dgemv)
+    :float32 (~inner-macro :float32 .sgemm .sgemv)})
 
 
 (defmacro ^:private blas-impl
-  [cast-fn scalar-cast-fn gemm-op gemv-op]
+  [datatype gemm-op gemv-op]
   `{:gemm (fn [trans-a?# trans-b?# a-row-count# a-col-count# b-col-count#
                ;;Rowstride because blas is row-major (the tensor system is column-major)
                alpha# A# a-rowstride#
@@ -681,17 +809,22 @@
                   M# (long a-row-count#)
                   N# (long b-col-count#)
                   K# (long a-col-count#)
-                  alpha# (~scalar-cast-fn alpha#)
-                  beta# (~scalar-cast-fn beta#)
-                  A# (~cast-fn A#)
-                  B# (~cast-fn B#)
-                  C# (~cast-fn C#)
-                  A-offset# (.offset A#)
-                  B-offset# (.offset B#)
-                  C-offset# (.offset C#)
-                  A# (.data A#)
-                  B# (.data B#)
-                  C# (.data C#)]
+                  alpha# (datatype->cast-fn ~datatype alpha#)
+                  beta# (datatype->cast-fn ~datatype beta#)
+                  A# (item->typed-nio-buffer ~datatype A#)
+                  B# (item->typed-nio-buffer ~datatype B#)
+                  C# (item->typed-nio-buffer ~datatype C#)
+                  A-offset# (.position A#)
+                  B-offset# (.position B#)
+                  C-offset# (.position C#)
+                  A# (.array A#)
+                  B# (.array B#)
+                  C# (.array C#)]
+              (when-not (and A# B# C#)
+                (throw (ex-info "All nio buffers must be array backed"
+                                {:a A#
+                                 :b B#
+                                 :c C#})))
               (~gemm-op (BLAS/getInstance) trans-a?# trans-b?#
                M# N# K#
                alpha# A# A-offset# a-rowstride#
@@ -704,18 +837,18 @@
             (let [a-rowstride# (long a-rowstride#)
                   a-row-count# (long a-row-count#)
                   a-col-count# (long a-col-count#)
-                  A# (~cast-fn A#)
-                  x# (~cast-fn x#)
-                  y# (~cast-fn y#)
-                  A-offset# (.offset A#)
-                  x-offset# (.offset x#)
-                  y-offset# (.offset y#)
-                  A# (.data A#)
-                  x# (.data x#)
-                  y# (.data y#)
-                  alpha# (~scalar-cast-fn alpha#)
+                  A# (item->typed-nio-buffer ~datatype A#)
+                  x# (item->typed-nio-buffer ~datatype x#)
+                  y# (item->typed-nio-buffer ~datatype y#)
+                  A-offset# (.position A#)
+                  x-offset# (.position x#)
+                  y-offset# (.position y#)
+                  A# (.array A#)
+                  x# (.array x#)
+                  y# (.array y#)
+                  alpha# (datatype->cast-fn ~datatype alpha#)
                   inc-x# (long inc-x#)
-                  beta# (~scalar-cast-fn beta#)
+                  beta# (datatype->cast-fn ~datatype beta#)
                   inc-y# (long inc-y#)]
               (~gemv-op (BLAS/getInstance)
                (cmu/bool->blas-trans trans-a?#)
@@ -727,22 +860,6 @@
 
 (def ^:private blas-fn-map
   (blas-macro-iter blas-impl))
-
-
-(defmacro sum-double-var
-  "macro to sum a double accumulator.  Note that we are careful
-  to avoid adding the first calculated answer to 0.0 as if that answer is very small
-  we would introduce roundoff error immediately.  So we need a slightly more complex loop
-  in order to avoid adding a small number to 0."
-  [idx-var num-iters stmt]
-  `(double
-    (if (= 0 ~num-iters)
-      0.0
-      (loop [sum-var# (let [~idx-var 0] ~stmt)
-             ~idx-var 1]
-        (if (< ~idx-var ~num-iters)
-          (recur (+ sum-var# ~stmt) (inc ~idx-var))
-          sum-var#)))))
 
 
 (defonce crap-atom (atom nil))
@@ -890,7 +1007,7 @@
 
 
   (rand! [stream dest {:keys [type] :as distribution}]
-    (let [rand-view (datatype->view-cast-fn :float32 (->buffer dest))
+    (let [rand-view (item->typed-nio-buffer :float32 (->buffer dest))
           elem-count (ct-dims/ecount (->dimensions dest))
           rand-gen (SecureRandom.)]
       (cond
@@ -900,13 +1017,13 @@
           (c-for [idx 0 (< idx elem-count) (inc idx)]
                  (let [next-rand (+ (* multiplier (.nextGaussian rand-gen))
                                     mean)]
-                   (v-aset rand-view idx next-rand))))
+                   (.put rand-view idx next-rand))))
         (= (:type distribution) :flat)
         (let [minimum (float (:minimum distribution))
               maximum (float (:maximum distribution))
               range (- maximum minimum)]
          (c-for [idx 0 (< idx elem-count) (inc idx)]
-                (v-aset rand-view idx (+ minimum
+                (.put rand-view idx (+ minimum
                                          (* (.nextFloat rand-gen)
                                             range)))))
         :else
@@ -917,20 +1034,14 @@
   [java-array]
   (ct/construct-tensor (drv/get-device ct/*stream*)
                        (ct-dims/dimensions [(ct/ecount java-array)])
-                       (dtype/->view java-array)))
+                       (unsigned/->typed-buffer java-array)))
+
 
 (defn as-java-array
   [cpu-tensor]
   (drv/sync-with-host ct/*stream*)
   (let [dev-buffer (ct/tensor->buffer cpu-tensor)]
-    (condp = (dtype/get-datatype dev-buffer)
-      :int8 (.data ^ByteArrayView dev-buffer)
-      :int16 (.data ^ShortArrayView dev-buffer)
-      :int32 (.data ^IntArrayView dev-buffer)
-      :int64 (.data ^LongArrayView dev-buffer)
-      :float32 (.data ^FloatArrayView dev-buffer)
-      :float64 (.data ^DoubleArrayView dev-buffer)
-      )))
+    (dtype/->array dev-buffer)))
 
 
 (defmacro tensor-context

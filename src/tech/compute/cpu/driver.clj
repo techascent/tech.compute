@@ -1,20 +1,13 @@
 (ns tech.compute.cpu.driver
   (:require [tech.compute.driver :as drv]
-            [tech.datatype.core :refer [v-aget v-aset] :as dtype]
-            [tech.datatype.base :as dtype-base]
-            [tech.datatype.marshal :as marshal]
+            [tech.datatype.core :as dtype]
+            [tech.datatype.java-primitive :as primitive]
+            [tech.datatype.java-unsigned :as unsigned]
             [clojure.core.async :as async]
-            [think.resource.core :as resource]
-            [clojure.core.matrix.macros :refer [c-for]]
-            [clojure.core.matrix :as m]
-            [think.parallel.core :as parallel])
-  (:import [java.nio ByteBuffer IntBuffer ShortBuffer LongBuffer
-            FloatBuffer DoubleBuffer Buffer]
-           [com.github.fommil.netlib BLAS]
-           [java.util Random]
-           [tech.datatype ArrayViewBase
-            IntArrayView ByteArrayView ShortArrayView LongArrayView
-            FloatArrayView DoubleArrayView]))
+            [think.resource.core :as resource])
+  (:import  [java.nio ByteBuffer ShortBuffer IntBuffer
+             LongBuffer FloatBuffer DoubleBuffer]
+            [tech.datatype.java_unsigned TypedBuffer]))
 
 
 (set! *warn-on-reflection* true)
@@ -123,35 +116,14 @@ Use with care; the synchonization primitives will just hang with this stream."
 (defrecord CPUEvent [input-chan])
 
 
-(defmacro datatype->view-cast-fn
-  [dtype buf]
-  (condp = dtype
-    :int8 `(marshal/as-byte-array-view ~buf)
-    :int16 `(marshal/as-short-array-view ~buf)
-    :int32 `(marshal/as-int-array-view ~buf)
-    :int64 `(marshal/as-long-array-view ~buf)
-    :float32 `(marshal/as-float-array-view ~buf)
-    :float64 `(marshal/as-double-array-view ~buf)))
-
-
-(defmacro datatype->cast-fn
-  [dtype val]
-  (condp = dtype
-    :int8 `(byte ~val)
-    :int16 `(short ~val)
-    :int32 `(int ~val)
-    :int64 `(long ~val)
-    :float32 `(float ~val)
-    :float64 `(double ~val)))
-
-
 (extend-type CPUStream
   drv/PStream
   (copy-host->device [stream host-buffer host-offset
                       device-buffer device-offset elem-count]
     (with-stream-dispatch stream
       (dtype/copy! host-buffer host-offset device-buffer device-offset elem-count)))
-  (copy-device->host [stream device-buffer device-offset host-buffer host-offset elem-count]
+  (copy-device->host [stream device-buffer device-offset host-buffer
+                      host-offset elem-count]
     (with-stream-dispatch stream
       (dtype/copy! device-buffer device-offset host-buffer host-offset elem-count)))
   (copy-device->device [stream dev-a dev-a-off dev-b dev-b-off elem-count]
@@ -197,11 +169,11 @@ Use with care; the synchonization primitives will just hang with this stream."
 
   (allocate-device-buffer-impl [impl elem-count elem-type]
     (check-stream-error impl)
-    (dtype/make-view elem-type elem-count))
+    (dtype/make-typed-buffer elem-type elem-count))
 
   (allocate-rand-buffer-impl [impl elem-count]
     (check-stream-error impl)
-    (dtype/make-view :float32 elem-count)))
+    (dtype/make-typed-buffer :float32 elem-count)))
 
 
 (extend-type CPUDriver
@@ -211,7 +183,7 @@ Use with care; the synchonization primitives will just hang with this stream."
 
   (allocate-host-buffer-impl [impl elem-count elem-type options]
     (check-stream-error impl)
-    (dtype/make-view elem-type elem-count)))
+    (dtype/make-typed-buffer elem-type elem-count)))
 
 
 (defn- in-range?
@@ -222,45 +194,82 @@ Use with care; the synchonization primitives will just hang with this stream."
            (< lhs-off (+ rhs-off rhs-len)))))
 
 
-(defmacro array-view-pbuffer-impl
-  [view-type cast-fn copy-fn dtype-fn]
-  `(extend-type ~view-type
-     drv/PBuffer
-     (sub-buffer-impl [buffer# offset# length#]
-       (dtype/->view buffer# offset# length#))
-     (alias? [lhs-dev-buffer# rhs-dev-buffer#]
-       (when (identical? (type lhs-dev-buffer#)
-                         (type rhs-dev-buffer#))
-         (let [lhs-buf# (~cast-fn lhs-dev-buffer#)
-               rhs-buf# (~cast-fn rhs-dev-buffer#)]
-           (and (identical? (.data lhs-buf#)
-                            (.data rhs-buf#))
-                (= (.offset lhs-buf#)
-                   (.offset rhs-buf#))))))
-     (partially-alias? [lhs-dev-buffer# rhs-dev-buffer#]
-       (when (identical? (type lhs-dev-buffer#)
-                         (type rhs-dev-buffer#))
-         (let [lhs-buf# (~cast-fn lhs-dev-buffer#)
-               rhs-buf# (~cast-fn rhs-dev-buffer#)]
-           (and (identical? (.data lhs-buf#)
-                            (.data rhs-buf#))
-                (in-range? (.offset lhs-buf#) (.length lhs-buf#)
-                           (.offset rhs-buf#) (.length rhs-buf#))))))))
-
-(defmacro array-view-iterator
-  [inner-macro & args]
-  `[(~inner-macro ByteArrayView marshal/as-byte-array-view 'copy-to-byte-array byte ~@args)
-    (~inner-macro ShortArrayView marshal/as-short-array-view 'copy-to-short-array short ~@args)
-    (~inner-macro IntArrayView marshal/as-int-array-view 'copy-to-int-array int ~@args)
-    (~inner-macro LongArrayView marshal/as-long-array-view 'copy-to-long-array long ~@args)
-    (~inner-macro FloatArrayView marshal/as-float-array-view 'copy-to-float-array float ~@args)
-    (~inner-macro DoubleArrayView marshal/as-double-array-view 'copy-to-double-array double ~@args)])
+(defprotocol PNioPositionLength
+  (nio-make-view [item offset len])
+  (array-backing-store [item])
+  (nio-offset [item])
+  (nio-length [item]))
 
 
-(array-view-iterator array-view-pbuffer-impl)
+(defmacro to-nio-buf
+  [datatype item]
+  `(primitive/datatype->buffer-cast-fn ~datatype ~item))
 
 
-(extend-type ArrayViewBase
+(defmacro implement-pos-length
+  [buffer-type datatype]
+  `(clojure.core/extend
+       ~buffer-type
+     PNioPositionLength
+     {:nio-make-view (fn [item# offset# len#]
+                       ;;We slice the buffer to make it stand-alone
+                       (let [buf# (.slice (to-nio-buf ~datatype item#))
+                             offset# (long offset#)
+                             len# (long len#)]
+                         (.position buf# offset#)
+                         (.limit buf# (+ offset# len#))
+                         buf#))
+      :array-backing-store (fn [item#]
+                             (let [buf# (to-nio-buf ~datatype item#)]
+                               (.array buf#)))
+      :nio-offset (fn [item#]
+                    (let [buf# (to-nio-buf ~datatype item#)]
+                      (.position buf#)))
+      :nio-length (fn [item#]
+                    (let [buf# (to-nio-buf ~datatype item#)]
+                      (- (.limit buf#)
+                         (.position buf#))))}))
+
+
+(defn get-offset
+  ^long [item]
+  (nio-offset (primitive/->buffer-backing-store item)))
+
+
+(defn get-length
+  ^long [item]
+  (nio-length (primitive/->buffer-backing-store item)))
+
+
+(implement-pos-length ByteBuffer :int8)
+(implement-pos-length ShortBuffer :int16)
+(implement-pos-length IntBuffer :int32)
+(implement-pos-length LongBuffer :int64)
+(implement-pos-length FloatBuffer :float32)
+(implement-pos-length DoubleBuffer :float64)
+
+
+(extend-type TypedBuffer
+  drv/PBuffer
+  (sub-buffer-impl [buffer offset length]
+    (unsigned/->TypedBuffer (nio-make-view (primitive/->buffer-backing-store buffer)
+                                           offset length)
+                            (dtype/get-datatype buffer)))
+  (alias? [lhs rhs]
+    (let [lhs-ary (array-backing-store (primitive/->buffer-backing-store lhs))
+          rhs-ary (array-backing-store (primitive/->buffer-backing-store rhs))]
+      (and (and lhs-ary rhs-ary)
+           (identical? lhs-ary rhs-ary)
+           (and (= (get-offset lhs)
+                   (get-offset rhs))))))
+  (partially-alias? [lhs rhs]
+    (let [lhs-ary (array-backing-store (primitive/->buffer-backing-store lhs))
+          rhs-ary (array-backing-store (primitive/->buffer-backing-store rhs))]
+      (and (and lhs-ary rhs-ary)
+           (identical? lhs-ary rhs-ary)
+           (in-range? (get-offset lhs) (get-length lhs)
+                      (get-offset rhs) (get-length rhs)))))
+  ;;For uniformity all host/device buffers must implement the resource protocol.
   resource/PResource
   (release-resource [_]))
 

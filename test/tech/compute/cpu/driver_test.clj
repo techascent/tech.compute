@@ -11,9 +11,11 @@
 
 (use-fixtures :each test-utils/test-wrapper)
 
+
 (defn driver
   []
   (cpu/driver))
 
-(def-double-float-test simple-stream
+
+(def-all-dtype-test simple-stream
   (verify-driver/simple-stream (driver) test-utils/*datatype*))
