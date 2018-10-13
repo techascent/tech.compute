@@ -1,12 +1,12 @@
 (ns tech.compute.tensor.dimensions
-  "Cortex tensors dimensions control the shape and stride of the tensor along with offsetting
-  into the actual data buffer.  This allows multiple backends to share a single implementation
-  of a system that will allow transpose, reshape, etc. assuming the backend correctly interprets
-  the shape and stride of the dimension objects.
+  "Compute tensors dimensions control the shape and stride of the tensor along with
+  offsetting into the actual data buffer.  This allows multiple backends to share a
+  single implementation of a system that will allow transpose, reshape, etc. assuming
+  the backend correctly interprets the shape and stride of the dimension objects.
 
-  Shape vectors may have an index buffer in them at a specific dimension instead of a number.
-  This means that that dimension should be indexed indirectly.  If a shape has any index buffers
-  then it is considered an indirect shape."
+  Shape vectors may have an index buffer in them at a specific dimension instead of a
+  number.  This means that that dimension should be indexed indirectly.  If a shape has
+  any index buffers then it is considered an indirect shape."
   (:require [clojure.core.matrix :as m]
             [tech.datatype.core :as dtype]))
 
@@ -365,28 +365,29 @@ b. Combine densely-packed dimensions (not as simple)."
     (if (= 0 (count stripped))
       {:shape [1] :strides [1]}
       (let [reverse-stripped (reverse stripped)
-            reverse-stripped (reduce (fn [reverse-stripped [[cur-shp cur-stride]
-                                                            [last-shp last-stride]]]
-                                       ;;If the dimension is direct and the stride lines up.
-                                       (if (and (number? last-shp)
-                                                (= (long cur-stride)
-                                                   (* (long last-shp) (long last-stride))))
-                                         (let [[str-shp str-str] (last reverse-stripped)]
-                                           (vec (concat (drop-last reverse-stripped)
-                                                        [[(* (long str-shp) (long cur-shp))
-                                                          str-str]])))
-                                         (conj reverse-stripped [cur-shp cur-stride])))
-                                     [(first reverse-stripped)]
-                                     (map vector (rest reverse-stripped) reverse-stripped))
+            reverse-stripped (reduce
+                              (fn [reverse-stripped [[cur-shp cur-stride]
+                                                     [last-shp last-stride]]]
+                                ;;If the dimension is direct and the stride lines up.
+                                (if (and (number? last-shp)
+                                         (= (long cur-stride)
+                                            (* (long last-shp) (long last-stride))))
+                                  (let [[str-shp str-str] (last reverse-stripped)]
+                                    (vec (concat (drop-last reverse-stripped)
+                                                 [[(* (long str-shp) (long cur-shp))
+                                                   str-str]])))
+                                  (conj reverse-stripped [cur-shp cur-stride])))
+                              [(first reverse-stripped)]
+                              (map vector (rest reverse-stripped) reverse-stripped))
             stripped (reversev reverse-stripped)]
        {:shape (mapv first stripped)
         :strides (mapv second stripped)}))))
 
 
 (defn in-place-reshape
-  "Return new dimensions that correspond to an in-place reshape.  This is a very difficult
-  algorithm to get correct as it needs to take into account changing strides and dense vs
-  non-dense dimensions."
+  "Return new dimensions that correspond to an in-place reshape.  This is a very
+  difficult algorithm to get correct as it needs to take into account changing strides
+  and dense vs non-dense dimensions."
   [existing-dims shape]
   (let [new-dims (dimensions shape)]
     (when-not-error (<= (ecount new-dims)
@@ -471,7 +472,13 @@ b. Combine densely-packed dimensions (not as simple)."
 
 
 (defn transpose
-  "Transpose the dimensions.  Returns a new dimensions that will access memory in a transposed order."
+  "Transpose the dimensions.  Returns a new dimensions that will access memory in a
+  transposed order.
+  Dimension 0 is the leftmost (greatest) dimension:
+
+  (transpose tens (range (count (shape tens))))
+
+  is the identity operation."
   [{:keys [shape strides]} reorder-vec]
   (when-not-error (= (count (distinct reorder-vec))
                      (count shape))
@@ -526,7 +533,15 @@ tensor - dynamically defined arbitrary subset of the dimension."
             :start 0
             :count dim}
            (sequential? arg)
-           (sequence->monotonic-definition arg dim)
+           (if (monotonically-increasing? arg)
+             (sequence->monotonic-definition arg dim)
+             (let [max-arg-val (apply max arg)]
+               (if (>= max-arg-val dim)
+                 (throw (ex-info "Argument out of range"
+                                 {:max-arg-val max-arg-val
+                                  :dimension dim
+                                  :select-arg arg}))
+                 arg)))
            (number? arg) arg
            ;;Is this something shape-able
            (vector? (m/shape arg))

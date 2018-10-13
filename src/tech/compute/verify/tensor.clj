@@ -480,6 +480,22 @@ for the cuda backend."
        (is (not (ct/dense? sel-tens)))))))
 
 
+(defn select-with-persistent-vectors
+  [driver datatype]
+  (tensor-context
+   driver datatype
+   (let [mat-tens (ct/->tensor (repeat 2 (partition 3 (range 9))))
+         channels-first (ct/transpose mat-tens [2 0 1])
+         bgr (ct/select channels-first [2 1 0] :all :all)]
+     (is (= [[[2 5 8]
+              [2 5 8]]
+             [[1 4 7]
+              [1 4 7]]
+             [[0 3 6]
+              [0 3 6]]]
+            (ct/to-jvm bgr :datatype :int32))))))
+
+
 (defn select-transpose-interaction
   [driver datatype]
   (tensor-context

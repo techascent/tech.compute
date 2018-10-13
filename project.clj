@@ -4,7 +4,7 @@
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.9.0"]
-                 [techascent/tech.datatype "0.5.10"]
+                 [techascent/tech.datatype "0.5.11"]
                  [thinktopic/think.parallel "0.3.8"]
                  [thinktopic/think.resource "1.2.1"]
                  [com.github.fommil.netlib/all "1.1.2" :extension "pom"]])

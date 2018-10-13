@@ -60,11 +60,15 @@
 
 
 (def-int-long-test mask
-  (verify-tensor/mask (driver) :uint32))
+  (verify-tensor/mask (driver) *datatype*))
 
 
 (def-all-dtype-test select
   (verify-tensor/select (driver) *datatype*))
+
+
+(def-all-dtype-test select-with-persistent-vectors
+  (verify-tensor/select-with-persistent-vectors (driver) *datatype*))
 
 
 (def-all-dtype-test select-transpose-interaction

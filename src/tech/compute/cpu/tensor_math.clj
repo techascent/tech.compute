@@ -109,7 +109,8 @@
               (take-last (count min-shape) max-shape)))
       (->SimpleRepeatAddr (ct-dims/ecount dims))
       :else
-      (let [{:keys [reverse-shape reverse-strides]} (ct-dims/->reverse-data dims max-shape)]
+      (let [{:keys [reverse-shape reverse-strides]}
+            (ct-dims/->reverse-data dims max-shape)]
         (if direct?
           (->ElemIdxToAddr (int-array reverse-shape) (int-array reverse-strides)
                            (int-array (vec (reverse max-shape))))
@@ -118,11 +119,14 @@
                                       :reverse-strides reverse-strides
                                       :reverse-max-shape (ct-dims/reversev max-shape)})
             (->GeneralElemIdxToAddr (mapv (fn [item]
-                                            (if (number? item)
+                                            (cond
+                                              (number? item)
                                               item
-                                              ;;dtype/get-value works on pure buffers.
+                                              (ct/tensor? item)
                                               (ct/tensor->buffer
-                                               (ensure-simple-tensor item))))
+                                               (ensure-simple-tensor item))
+                                              (sequential? item)
+                                              (vec item)))
                                           reverse-shape)
                                     reverse-strides
                                     (ct-dims/reversev max-shape))))))))

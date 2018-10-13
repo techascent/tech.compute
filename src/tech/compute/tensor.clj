@@ -44,7 +44,9 @@ In general we want as much error checking and analysis done in this file as oppo
             [think.resource.core :as resource]
             [tech.compute.tensor.math :as tm]
             [tech.compute.tensor.utils :as tm-utils]
-            [tech.compute.tensor.dimensions :refer [when-not-error] :as dims]))
+            [tech.compute.tensor.dimensions :refer [when-not-error] :as dims]
+            [clojure.core.matrix.impl.pprint :as corem-pp])
+  (:import [java.io Writer]))
 
 
 (set! *warn-on-reflection* true)
@@ -67,8 +69,7 @@ In general we want as much error checking and analysis done in this file as oppo
 
 (defn shape
   [tensor]
-  (or (mp/get-shape tensor)
-      [(mp/element-count tensor)]))
+  (dtype/shape tensor))
 
 (defn as-vector
   [tensor]
@@ -196,6 +197,11 @@ that rerequires the items to have the same element count."
         (throw (ex-info "Array does not have specific dimension"
                         {:dimension-number dimension-number
                          :shape shape}))))))
+
+
+(defn tensor?
+  [item]
+  (instance? Tensor item))
 
 
 (defn- dimensions->column-stride
@@ -428,7 +434,7 @@ as one expects.  This means actually 2 conditions are checked:
 
 (defn to-core-matrix
   [^Tensor tensor]
-  (let [retval (m/new-array :vectorz (get (tensor->dimensions tensor) :shape))
+  (let [retval (m/new-array :vectorz (shape tensor))
         double-data (mp/as-double-array retval)]
     (copy-to-java-type double-data tensor)
     retval))
@@ -436,6 +442,44 @@ as one expects.  This means actually 2 conditions are checked:
 (defn to-core-matrix-vector
   [tensor]
   (m/as-vector (to-core-matrix tensor)))
+
+
+(defn to-jvm
+  "Conversion to storage that is efficient for the jvm.
+  Base storage is either jvm-array or persistent-vector."
+  [item & {:keys [datatype base-storage]
+           :or {datatype :float64
+                base-storage :persistent-vector}}]
+  ;;Get the data off the device
+  (let [data-array (to-array-of-type item datatype)
+        item-shape (shape item)
+        item-ecount (ecount data-array)
+        column-len (long (last item-shape))
+        n-columns (quot item-ecount column-len)
+        base-data
+        (->> (range n-columns)
+             (map (fn [col-idx]
+                    (let [col-offset (* column-len (long col-idx))]
+                      (case base-storage
+                        :jvm-array
+                        (let [retval (dtype/make-array-of-type datatype
+                                                               column-len)]
+                          (dtype/copy! data-array col-offset
+                                       retval 0 column-len {:unchecked? true}))
+                        :persistent-vector
+                        (mapv #(dtype/get-value data-array (+ (long %1)
+                                                              col-offset))
+                              (range column-len)))))))
+        partitionv (fn [& args]
+                     (map vec (apply partition args)))
+        partition-shape (->> (rest item-shape)
+                             drop-last
+                             reverse)]
+    (->> partition-shape
+         (reduce (fn [retval part-value]
+                   (partitionv part-value retval))
+                 base-data)
+         vec)))
 
 
 (defn ->tensor
@@ -480,7 +524,12 @@ will determine the shape of the outgoing tensor."
 
 (defn transpose
   "Transpose the tensor returning a new tensor that shares the backing store but indexes
-into it in a different order."
+  into it in a different order.
+  Dimension 0 is the leftmost (greatest) dimension:
+
+  (transpose tens (range (count (shape tens))))
+
+  is the identity operation."
   [tensor reorder-vec]
   (assoc tensor
          :dimensions (dims/transpose (tensor->dimensions tensor)
@@ -1059,15 +1108,26 @@ projecting to the surface of the hypersphere like normalize does, do a <= operat
     (typed-assign! dest src)))
 
 
-(set! *warn-on-reflection* false)
-(set! *unchecked-math* false)
-
-
 (defn enable-cpu-tensors!
   "Enables a version of the tensors that run on the cpu and that use netlib blas
   for operations."
   []
-  (alter-var-root #'*stream* (fn [_]
-                               (require 'tech.compute.cpu.driver)
-                               (require 'tech.compute.cpu.tensor-math)
-                               ((resolve 'tech.compute.cpu.driver/default-cpu-stream)))))
+  (alter-var-root #'*stream*
+                  (fn [_]
+                    (require 'tech.compute.cpu.driver)
+                    (require 'tech.compute.cpu.tensor-math)
+                    ((resolve 'tech.compute.cpu.driver/default-cpu-stream)))))
+
+
+(defn tensor->string
+  ^String [tens & {:keys [print-datatype]
+                   :or {print-datatype :float64}}]
+  (format "#tech.compute.tensor.Tensor<%s>%s\n%s"
+          (name (get-datatype tens))
+          (shape tens)
+          (corem-pp/pm (to-jvm tens :datatype print-datatype))))
+
+
+(defmethod print-method Tensor
+  [tens w]
+  (.write ^Writer w (tensor->string tens)))
