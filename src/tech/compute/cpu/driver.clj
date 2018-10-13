@@ -220,8 +220,7 @@ Use with care; the synchonization primitives will just hang with this stream."
                          (.limit buf# (+ offset# len#))
                          buf#))
       :array-backing-store (fn [item#]
-                             (let [buf# (to-nio-buf ~datatype item#)]
-                               (.array buf#)))
+                             (dtype/->array item#))
       :nio-offset (fn [item#]
                     (let [buf# (to-nio-buf ~datatype item#)]
                       (.position buf#)))
