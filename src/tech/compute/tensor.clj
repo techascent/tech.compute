@@ -89,8 +89,9 @@ In general we want as much error checking and analysis done in this file as oppo
   dest)
 
 
-;;Stream is dynamically bound at execution time presumably by an entity outside of the context
-;;of this file.  Due to this clients of this file should not be manipulating stream.
+;;Stream is dynamically bound at execution time presumably by an entity outside of the
+;;context of this file.  Due to this clients of this file should not be manipulating
+;;stream.
 (def ^:dynamic *stream*)
 
 (defmacro with-stream
@@ -99,11 +100,19 @@ In general we want as much error checking and analysis done in this file as oppo
      ~@body))
 
 
+(declare tensor?)
+
+
 (defn check-stream
-  []
-  (let [retval *stream*]
-    (when-not-error retval "Tensor stream is nil" {})
-    retval))
+  [& tensor-args]
+  (if-let [retval (or *stream*
+                      (->> tensor-args
+                           (filter tensor?)
+                           (map (comp compute-drv/default-stream
+                                      compute-drv/get-device)))
+                      first)]
+    retval
+    (throw (ex-info "Stream is unset and no tensor arguments found."))))
 
 ;;Similar to stream, the engine will set this variable and clients should not set
 ;;the variable themselves.
@@ -404,7 +413,7 @@ as one expects.  This means actually 2 conditions are checked:
    (let [tensor (make-dense src)
          n-elems (ecount tensor)
          device (tensor->device tensor)
-         stream (check-stream)
+         stream (check-stream src)
          host-buffer (compute-drv/allocate-host-buffer
                       (compute-drv/get-driver device)
                       n-elems (dtype/get-datatype tensor))]
@@ -518,8 +527,16 @@ will determine the shape of the outgoing tensor."
         retval (construct-tensor dimensions dev-buffer)]
     (when init-value
       (m/assign! retval init-value))
-    retval
-))
+    retval))
+
+
+(defn clone
+  [src & {:keys [datatype]}]
+  (let [datatype (or datatype (get-datatype src))]
+    (-> (new-tensor (shape src)
+                    :datatype datatype
+                    :init-value nil)
+        (assign! src))))
 
 
 (defn transpose
@@ -624,7 +641,7 @@ and the rest of the dimensions being squashed into n-rows."
 
 (defmethod typed-assign! [:tensor :number]
   [^Tensor dest src]
-  (tm/assign-constant! (check-stream) dest src))
+  (tm/assign-constant! (check-stream dest) dest src))
 
 
 (defn- memcpy-semantics?
@@ -654,13 +671,13 @@ and the rest of the dimensions being squashed into n-rows."
     (ensure-same-device dest src)
     (check-partial-alias dest src)
     (if (memcpy-semantics? dest src)
-      (compute-drv/copy-device->device (check-stream)
+      (compute-drv/copy-device->device (check-stream dest)
                                        (tensor->buffer src) 0
                                        (tensor->buffer dest) 0
                                        (ecount src))
       (do
         (ensure-same-device dest src)
-        (tm/assign! (check-stream) dest src)))))
+        (tm/assign! (check-stream dest) dest src)))))
 
 
 (defn- ensure-broadcast-rules
@@ -709,13 +726,13 @@ and the rest of the dimensions being squashed into n-rows."
                    op))
     :tensor
     (if (compute-drv/alias? (tensor->buffer dest) (tensor->buffer x))
-      (tm/unary-accum! (check-stream) dest alpha op)
+      (tm/unary-accum! (check-stream dest) dest alpha op)
       (do
         (ensure-datatypes (get-datatype dest) x)
         (ensure-same-device dest x)
         (ensure-broadcast-rules dest x)
         (check-partial-alias dest x)
-        (tm/unary-op! (check-stream) dest x alpha op))))
+        (tm/unary-op! (check-stream dest) dest x alpha op))))
   dest)
 
 
@@ -754,10 +771,12 @@ and the rest of the dimensions being squashed into n-rows."
                  x
                  :noop)
       (if (compute-drv/alias? (tensor->buffer dest) (tensor->buffer x))
-        (tm/binary-accum-constant! (check-stream) dest alpha y op reverse-operands?)
+        (tm/binary-accum-constant! (check-stream dest) dest alpha y op
+                                   reverse-operands?)
         (do
           (check-partial-alias dest x)
-          (tm/binary-op-constant! (check-stream) dest x alpha y op reverse-operands?)))))
+          (tm/binary-op-constant! (check-stream dest) dest x alpha y op
+                                  reverse-operands?)))))
   dest)
 
 
@@ -797,11 +816,12 @@ and the rest of the dimensions being squashed into n-rows."
                                       [beta alpha x true])]
         (ensure-broadcast-rules dest y)
         (ensure-datatypes (get-datatype dest) y)
-        (tm/binary-accum! (check-stream) dest alpha y beta op rev-ops? (not dest-is-max-shape?)))
+        (tm/binary-accum! (check-stream dest) dest alpha y beta op
+                          rev-ops? (not dest-is-max-shape?)))
       (do
         (ensure-broadcast-rules dest x y)
         (ensure-datatypes (get-datatype x) y dest)
-        (tm/binary-op! (check-stream) dest x alpha y beta op))))
+        (tm/binary-op! (check-stream dest) dest x alpha y beta op))))
   dest)
 
 
@@ -872,11 +892,12 @@ Datatypes must match."
         (doseq [tens tensors]
           (ensure-broadcast-rules dest tens))
         (case num-tensor-args
-          3 (tm/ternary-op! (check-stream) dest x alpha y beta z gamma op)
+          3 (tm/ternary-op! (check-stream dest) dest x alpha y beta z gamma op)
           2 (let [[[a-tens a-mul] [b-tens b-mul]] tensor-pairs]
-              (tm/ternary-op-constant! (check-stream) dest a-tens a-mul b-tens b-mul (first constants) op arg-order))
+              (tm/ternary-op-constant! (check-stream dest) dest a-tens a-mul
+                                       b-tens b-mul (first constants) op arg-order))
           1 (let [[[a-tens a-mul]] tensor-pairs]
-              (tm/ternary-op-constant-constant! (check-stream) dest a-tens a-mul
+              (tm/ternary-op-constant-constant! (check-stream dest) dest a-tens a-mul
                                                 (first constants) (second constants) op arg-order)))))
     dest))
 
@@ -904,7 +925,7 @@ The leading dimensions of both vectors must match."
       {:output-shape output-shape})
     (ensure-same-device output input)
     (ensure-datatypes (dtype/get-datatype output) input)
-    (tm/unary-reduce! (check-stream) output alpha input op)
+    (tm/unary-reduce! (check-stream output) output alpha input op)
     output))
 
 
@@ -966,7 +987,7 @@ The leading dimensions of both vectors must match."
       (format "C %s col count doesn't match B %s col count" c-shape b-shape)
       {:b-shape b-shape
        :c-shape c-shape})
-    (tm/gemm! (check-stream)
+    (tm/gemm! (check-stream C)
               (tensor->buffer C) (tensor->column-stride C)
               trans-a? trans-b? alpha
               (tensor->buffer A) a-row-count a-col-count (tensor->column-stride A)
@@ -1004,7 +1025,7 @@ So either it is dense *or* num-columns is 1"
         inc-x (blas-vector-increment x)
         inc-c (blas-vector-increment c)
         a-colstride (tensor->column-stride A)]
-    (tm/gemv! (check-stream)
+    (tm/gemv! (check-stream c)
               (tensor->buffer c) inc-c
               trans-a? alpha
               (tensor->buffer A) a-row-count a-col-count a-colstride
@@ -1061,7 +1082,7 @@ Due to cuda limitations, this function is limited to floating point numbers."
                        (dims/access-increasing? (tensor->dimensions dest)))
     "Rand generation must have simple dense buffers" {})
   (valid-distribution? distribution)
-  (tm/rand! (check-stream) dest distribution)
+  (tm/rand! (check-stream dest) dest distribution)
   dest)
 
 (defn normalize!
