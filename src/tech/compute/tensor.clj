@@ -92,7 +92,7 @@ In general we want as much error checking and analysis done in this file as oppo
 ;;Stream is dynamically bound at execution time presumably by an entity outside of the
 ;;context of this file.  Due to this clients of this file should not be manipulating
 ;;stream.
-(def ^:dynamic *stream*)
+(def ^:dynamic *stream* nil)
 
 (defmacro with-stream
   [stream & body]
@@ -109,8 +109,8 @@ In general we want as much error checking and analysis done in this file as oppo
                       (->> tensor-args
                            (filter tensor?)
                            (map (comp compute-drv/default-stream
-                                      compute-drv/get-device)))
-                      first)]
+                                      compute-drv/get-device))
+                           first))]
     retval
     (throw (ex-info "Stream is unset and no tensor arguments found."))))
 
@@ -484,11 +484,13 @@ as one expects.  This means actually 2 conditions are checked:
         partition-shape (->> (rest item-shape)
                              drop-last
                              reverse)]
-    (->> partition-shape
-         (reduce (fn [retval part-value]
-                   (partitionv part-value retval))
-                 base-data)
-         vec)))
+    (if (seq partition-shape)
+      (->> partition-shape
+           (reduce (fn [retval part-value]
+                     (partitionv part-value retval))
+                   base-data)
+           vec)
+      (first base-data))))
 
 
 (defn ->tensor
@@ -532,11 +534,13 @@ will determine the shape of the outgoing tensor."
 
 (defn clone
   [src & {:keys [datatype]}]
-  (let [datatype (or datatype (get-datatype src))]
-    (-> (new-tensor (shape src)
-                    :datatype datatype
-                    :init-value nil)
-        (assign! src))))
+  (let [datatype (or datatype (get-datatype src))
+        stream (check-stream src)]
+    (with-bindings {#'*stream* stream}
+      (-> (new-tensor (shape src)
+                      :datatype datatype
+                      :init-value nil)
+          (assign! src)))))
 
 
 (defn transpose

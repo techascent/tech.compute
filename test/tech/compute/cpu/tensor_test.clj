@@ -8,8 +8,9 @@
                      test-wrapper]]
             [clojure.test :refer :all]
             [tech.compute.cpu.driver :refer [driver]]
-            [tech.compute.cpu.tensor-math]
-            [tech.compute.tensor :as tt]))
+            [tech.compute.cpu.tensor-math :as cpu-tm]
+            [tech.compute.tensor :as ct]
+            [tech.datatype.core :as dtype]))
 
 
 (use-fixtures :each test-wrapper)
@@ -94,8 +95,16 @@
 
 (deftest default-tensor-stream
   (testing "Default stream binding; main thread cpu stream."
-    (tt/enable-cpu-tensors!)
-    (let [tens-a (tt/->tensor [1 2 3])
-          double-data (tt/to-double-array tens-a)]
+    (ct/enable-cpu-tensors!)
+    (let [tens-a (ct/->tensor [1 2 3])
+          double-data (ct/to-double-array tens-a)]
       (is (= [1.0 2.0 3.0]
              (vec double-data))))))
+
+
+(deftest infer-stream
+  (is (= [1 2 3]
+         (-> (cpu-tm/typed-bufferable->tensor
+              (dtype/make-array-of-type :int16 [1 2 3]))
+             ct/clone
+             (ct/to-jvm :datatype :int32)))))
