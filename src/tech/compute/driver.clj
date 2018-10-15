@@ -11,7 +11,7 @@
             streams that might be blocking."
   (:require [tech.datatype.core :as dtype]
             [clojure.core.matrix :as m]
-            [think.resource.core :as resource]))
+            [tech.resource :as resource]))
 
 
 (defprotocol PDriver
@@ -87,7 +87,7 @@ data overlap?"))
   (release-resource [_]
     (unsafe-with-compute-device
      device
-     (resource/release-resource-context res-ctx))))
+     (resource/release-resource-seq res-ctx))))
 
 
 (defmacro with-compute-device

@@ -41,9 +41,8 @@ In general we want as much error checking and analysis done in this file as oppo
             [clojure.core.matrix.protocols :as mp]
             [mikera.vectorz.matrix-api]
             [clojure.core.matrix :as m]
-            [think.resource.core :as resource]
+            [tech.resource :as resource]
             [tech.compute.tensor.math :as tm]
-            [tech.compute.tensor.utils :as tm-utils]
             [tech.compute.tensor.dimensions :refer [when-not-error] :as dims]
             [clojure.core.matrix.impl.pprint :as corem-pp])
   (:import [java.io Writer]))
@@ -112,7 +111,8 @@ In general we want as much error checking and analysis done in this file as oppo
                                       compute-drv/get-device))
                            first))]
     retval
-    (throw (ex-info "Stream is unset and no tensor arguments found."))))
+    (throw (ex-info "Stream is unset and no tensor arguments found."
+                    {}))))
 
 ;;Similar to stream, the engine will set this variable and clients should not set
 ;;the variable themselves.
@@ -725,8 +725,8 @@ and the rest of the dimensions being squashed into n-rows."
   (condp = (datatype->keyword x)
     :number
     (assign! dest (perform-unary-op
-                   (* (double (tm-utils/dtype-cast alpha (get-datatype dest)))
-                      (double (tm-utils/dtype-cast x (get-datatype dest))))
+                   (* (double (dtype/cast (get-datatype dest) alpha))
+                      (double (dtype/cast (get-datatype dest) x)))
                    op))
     :tensor
     (if (compute-drv/alias? (tensor->buffer dest) (tensor->buffer x))

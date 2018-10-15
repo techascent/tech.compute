@@ -2,12 +2,11 @@
   (:require [tech.compute.tensor :as ct]
             [tech.compute.tensor.dimensions :as ct-dims]
             [tech.compute.driver :as drv]
-            [tech.compute.tensor.utils :as tm-utils]
             [tech.datatype.core :as dtype]
             [clojure.test :refer :all]
             [clojure.core.matrix :as m]
             [clojure.core.matrix.stats :as stats]
-            [think.resource.core :as resource]))
+            [tech.resource :as resource]))
 
 
 (defmacro tensor-context
@@ -71,21 +70,21 @@ for the cuda backend."
    (let [tens-a (ct/->tensor (partition 3 (range 9)))
          tens-b (ct/->tensor (partition 3 (repeat 9 1)))]
      (ct/unary-op! tens-b 2.5 tens-a :ceil)
-     (is (m/equals (mapv #(Math/ceil (* ^double % (tm-utils/dtype-cast 2.5 datatype))) (range 9))
+     (is (m/equals (mapv #(Math/ceil (* ^double % (dtype/cast 2.5 datatype))) (range 9))
                    (ct/to-double-array tens-b)))
      (ct/unary-op! tens-b 1.0 tens-b :-)
-     (is (m/equals (mapv #(- (Math/ceil (* ^double % (tm-utils/dtype-cast 2.5 datatype)))) (range 9))
+     (is (m/equals (mapv #(- (Math/ceil (* ^double % (dtype/cast 2.5 datatype)))) (range 9))
                    (ct/to-double-array tens-b)))
 
      (let [src-data [0 1 2 3 4]
            tens-src (ct/->tensor src-data)
            tens-b (ct/->tensor src-data)]
        (ct/unary-op! tens-b 1.0 tens-src :exp)
-       (is (m/equals (mapv #(tm-utils/dtype-cast (Math/exp (double %)) datatype)
+       (is (m/equals (mapv #(dtype/cast (Math/exp (double %)) datatype)
                            src-data)
                      (ct/to-double-array tens-b)))
        (ct/unary-op! tens-b 1.0 tens-src :sqrt)
-       (is (m/equals (mapv #(tm-utils/dtype-cast (Math/sqrt (double %)) datatype)
+       (is (m/equals (mapv #(dtype/cast (Math/sqrt (double %)) datatype)
                            src-data)
                      (ct/to-double-array tens-b)))))))
 
@@ -355,9 +354,9 @@ for the cuda backend."
      (is (m/equals (repeat 10 (apply + src-data))
                    (ct/to-double-array dest)))
      (ct/unary-reduce! dest 1.0 src :mean)
-     (is (m/equals (repeat 10 (tm-utils/dtype-cast (/ (apply + src-data)
-                                                      (count src-data))
-                                                   datatype))
+     (is (m/equals (repeat 10 (dtype/cast (/ (apply + src-data)
+                                             (count src-data))
+                                          datatype))
                    (ct/to-double-array dest))))))
 
 

@@ -4,7 +4,7 @@
             [tech.datatype.java-primitive :as primitive]
             [tech.datatype.java-unsigned :as unsigned]
             [clojure.core.async :as async]
-            [think.resource.core :as resource])
+            [tech.resource :as resource])
   (:import  [java.nio ByteBuffer ShortBuffer IntBuffer
              LongBuffer FloatBuffer DoubleBuffer]
             [tech.datatype.java_unsigned TypedBuffer]))

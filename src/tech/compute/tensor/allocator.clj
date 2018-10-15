@@ -4,7 +4,7 @@
             [tech.compute.driver :as compute-drv]
             [clojure.core.matrix :as m]
             [tech.datatype.core :as dtype]
-            [think.resource.core :as resource]))
+            [tech.resource :as resource]))
 
 
 (defprotocol PAllocator
