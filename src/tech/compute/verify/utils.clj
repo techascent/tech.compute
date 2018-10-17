@@ -1,7 +1,9 @@
 (ns tech.compute.verify.utils
   (:require [clojure.core.matrix :as m]
             [tech.resource :as resource]
-            [clojure.test :refer [deftest]])
+            [clojure.test :refer [deftest]]
+            [tech.datatype.java-unsigned :as unsigned]
+            [tech.compute :as compute])
   (:import [java.math BigDecimal MathContext]))
 
 
@@ -13,82 +15,45 @@
       (test-fn))))
 
 
+(defmacro with-default-device-and-stream
+  [driver & body]
+  `(resource/with-resource-context
+     (let [~'device (compute/default-device ~driver)
+           ~'stream (compute/default-stream ~'device)]
+       ~@body)))
+
+
 (def ^:dynamic *datatype* :float64)
+
+
+(defmacro datatype-list-tests
+  [datatype-list test-name & body]
+  (println datatype-list)
+  `(do
+     ~@(for [datatype datatype-list]
+         (do
+           (println datatype)
+           `(deftest ~(symbol (str test-name "-" (name datatype)))
+              (with-bindings {#'*datatype* ~datatype}
+                ~@body))))))
+
 
 
 (defmacro def-double-float-test
   [test-name & body]
-  (let [double-test-name (str test-name "-d")
-        float-test-name (str test-name "-f")]
-   `(do
-      (deftest ~(symbol double-test-name)
-        (with-bindings {#'*datatype* :float64}
-          ~@body))
-      (deftest ~(symbol float-test-name)
-        (with-bindings {#'*datatype* :float32}
-          ~@body)))))
+  `(datatype-list-tests [:float64 :float32] ~test-name ~@body))
 
 
 (defmacro def-int-long-test
   [test-name & body]
-  (let [int-test-name (str test-name "-i")
-        long-test-name (str test-name "-l")]
-   `(do
-      (deftest ~(symbol int-test-name)
-        (with-bindings {#'*datatype* :int32}
-          ~@body))
-      (deftest ~(symbol long-test-name)
-        (with-bindings {#'*datatype* :int64}
-          ~@body)))))
+  `(datatype-list-tests [:int32 :uint32 :int64 :uint64]
+                        ~test-name
+                        ~@body))
+
+
+(def ^:dynamic all-datatypes unsigned/datatypes)
 
 
 (defmacro def-all-dtype-test
   [test-name & body]
-  (let [double-test-name (str test-name "-d")
-        float-test-name (str test-name "-f")
-        long-test-name (str test-name "-l")
-        int-test-name (str test-name "-i")
-        short-test-name (str test-name "-s")
-        byte-test-name (str test-name "-b")
-        ]
-   `(do
-      (deftest ~(symbol double-test-name)
-        (with-bindings {#'*datatype* :float64}
-          ~@body))
-      (deftest ~(symbol float-test-name)
-        (with-bindings {#'*datatype* :float32}
-          ~@body))
-      (deftest ~(symbol long-test-name)
-        (with-bindings {#'*datatype* :int64}
-          ~@body))
-      (deftest ~(symbol int-test-name)
-        (with-bindings {#'*datatype* :int32}
-          ~@body))
-      (deftest ~(symbol short-test-name)
-        (with-bindings {#'*datatype* :int16}
-          ~@body))
-      (deftest ~(symbol byte-test-name)
-        (with-bindings {#'*datatype* :int8}
-          ~@body)))))
-
-
-(defmacro def-cas-dtype-test
-  "These test are only valid for datatypes that support gpu CAS operations."
-  [test-name & body]
-  (let [double-test-name (str test-name "-d")
-        float-test-name (str test-name "-f")
-        long-test-name (str test-name "-l")
-        int-test-name (str test-name "-i")]
-   `(do
-      (deftest ~(symbol double-test-name)
-        (with-bindings {#'*datatype* :float64}
-          ~@body))
-      (deftest ~(symbol float-test-name)
-        (with-bindings {#'*datatype* :float32}
-          ~@body))
-      (deftest ~(symbol long-test-name)
-        (with-bindings {#'*datatype* :int64}
-          ~@body))
-      (deftest ~(symbol int-test-name)
-        (with-bindings {#'*datatype* :int32}
-          ~@body)))))
+  `(datatype-list-tests ~all-datatypes ~test-name ~@body))

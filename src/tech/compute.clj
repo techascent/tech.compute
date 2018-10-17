@@ -15,7 +15,7 @@
 (defn driver
   "Do a registry lookup to find a driver by its name."
   [driver-name]
-  (registry/get-driver driver-name))
+  (registry/driver driver-name))
 
 
 (defn ->driver
@@ -151,7 +151,8 @@ buffer's device's default stream is used."
   [host-buffer host-offset device-buffer device-offset elem-count & {:keys [stream]}]
   (check-legal-copy! host-buffer host-offset device-buffer device-offset elem-count)
   (let [stream (provided-or-default-stream stream device-buffer)]
-    (drv/copy-host->device stream host-buffer host-buffer device-buffer device-offset elem-count)))
+    (drv/copy-host->device stream host-buffer host-offset
+                           device-buffer device-offset elem-count)))
 
 
 (defn copy-device->host
@@ -160,7 +161,8 @@ device buffer's device's default stream is used."
   [device-buffer device-offset host-buffer host-offset elem-count & {:keys [stream]}]
   (check-legal-copy! device-buffer device-offset host-buffer host-offset elem-count)
   (let [stream (provided-or-default-stream stream device-buffer)]
-    (drv/copy-device->host stream device-buffer device-offset host-buffer host-offset elem-count)))
+    (drv/copy-device->host stream device-buffer device-offset
+                           host-buffer host-offset elem-count)))
 
 
 (defn copy-device->device

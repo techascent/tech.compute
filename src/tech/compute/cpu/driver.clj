@@ -4,7 +4,9 @@
             [tech.datatype.java-primitive :as primitive]
             [tech.datatype.java-unsigned :as unsigned]
             [clojure.core.async :as async]
-            [tech.resource :as resource])
+            [tech.resource :as resource]
+            [tech.compute :as compute]
+            [tech.compute.registry :as registry])
   (:import  [java.nio ByteBuffer ShortBuffer IntBuffer
              LongBuffer FloatBuffer DoubleBuffer]
             [tech.datatype.java_unsigned TypedBuffer]))
@@ -19,18 +21,21 @@
 (defrecord CPUDriver [devices error-atom])
 
 
+(defonce driver-name (registry/current-ns->keyword))
+
+
 (extend-protocol drv/PDriverProvider
   CPUDriver
   (get-driver [driver] driver)
   CPUDevice
   (get-driver [device] ((get device :driver-fn)))
   CPUStream
-  (get-driver [stream] (drv/get-driver ((:device-fn stream)))))
+  (get-driver [stream] (compute/->driver ((:device-fn stream)))))
 
 
 (extend-protocol drv/PDeviceProvider
   CPUDriver
-  (get-device [driver] (drv/default-device driver))
+  (get-device [driver] (compute/default-device driver))
   CPUDevice
   (get-device [device] device)
   CPUStream
@@ -77,7 +82,7 @@
   "Create a cpu stream that will execute everything immediately inline.
 Use with care; the synchonization primitives will just hang with this stream."
   ^CPUStream []
-  (->CPUStream (constantly (drv/default-device (driver))) nil nil nil))
+  (->CPUStream (constantly (compute/default-device (driver))) nil nil nil))
 
 
 (defn is-main-thread-cpu-stream?
@@ -156,32 +161,37 @@ Use with care; the synchonization primitives will just hang with this stream."
 
 (extend-type CPUDevice
   drv/PDevice
-  (memory-info-impl [impl]
+
+  (memory-info [impl]
     (get-memory-info))
 
   (supports-create-stream? [device] true)
 
   (default-stream [device] @(:default-stream device))
 
-  (create-stream-impl [impl]
+  (create-stream [impl]
     (check-stream-error impl)
     (cpu-stream impl (:error-atom impl)))
 
-  (allocate-device-buffer-impl [impl elem-count elem-type]
+  (allocate-device-buffer [impl elem-count elem-type options]
     (check-stream-error impl)
     (dtype/make-typed-buffer elem-type elem-count))
 
-  (allocate-rand-buffer-impl [impl elem-count]
+  (allocate-rand-buffer [impl elem-count]
     (check-stream-error impl)
     (dtype/make-typed-buffer :float32 elem-count)))
 
 
 (extend-type CPUDriver
   drv/PDriver
+  (driver-name [impl]
+    driver-name)
+
+
   (get-devices [impl]
     @(get impl :devices))
 
-  (allocate-host-buffer-impl [impl elem-count elem-type options]
+  (allocate-host-buffer [impl elem-count elem-type options]
     (check-stream-error impl)
     (dtype/make-typed-buffer elem-type elem-count)))
 
@@ -298,5 +308,8 @@ Use with care; the synchonization primitives will just hang with this stream."
   (memoize
    (fn []
      (-> (driver)
-         (drv/default-device)
-         (drv/default-stream)))))
+         (compute/default-device)
+         (compute/default-stream)))))
+
+
+(registry/register-driver (driver))

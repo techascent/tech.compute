@@ -3,7 +3,6 @@
             [tech.datatype.java-primitive :as primitive]
             [tech.datatype.java-unsigned :as unsigned]
             [tech.compute.tensor.math :as tm]
-            [tech.compute.driver :as compute-drv]
             [tech.parallel :as parallel]
             [clojure.core.matrix.macros :refer [c-for]]
             [tech.compute.math-util :as cmu]
@@ -1058,15 +1057,6 @@
   (drv/sync-with-host ct/*stream*)
   (let [dev-buffer (ct/tensor->buffer cpu-tensor)]
     (dtype/->array dev-buffer)))
-
-
-(defmacro tensor-context
-  [& body]
-  `(resource/with-resource-context
-     (let [device# (drv/default-device (cpu-driver/driver))
-           stream# (drv/create-stream :device device#)]
-       (ct/with-stream stream#
-         ~@body))))
 
 
 (defn typed-bufferable->tensor

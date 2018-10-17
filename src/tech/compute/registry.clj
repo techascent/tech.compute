@@ -22,12 +22,14 @@
 
 (defn register-driver
   [driver]
-  (swap! *registered-drivers* assoc (drv/driver-name driver) driver))
+  (swap! *registered-drivers* assoc (drv/driver-name driver) driver)
+  (drv/driver-name driver))
 
 
 (defn driver-names
   []
-  (keys @*registered-drivers*))
+  (->> (keys @*registered-drivers*)
+       set))
 
 
 (defmacro current-ns->keyword
