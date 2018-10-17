@@ -263,7 +263,7 @@ Use with care; the synchonization primitives will just hang with this stream."
 
 (extend-type TypedBuffer
   drv/PBuffer
-  (sub-buffer-impl [buffer offset length]
+  (sub-buffer [buffer offset length]
     (unsigned/->TypedBuffer (nio-make-view (primitive/->buffer-backing-store buffer)
                                            offset length)
                             (dtype/get-datatype buffer)))

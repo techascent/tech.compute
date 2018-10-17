@@ -1,27 +1,35 @@
 (ns tech.compute.verify.tensor
-  (:require [tech.compute.tensor :as ct]
+  (:require [tech.compute :as compute]
+            [tech.compute.tensor :as ct]
             [tech.compute.tensor.dimensions :as ct-dims]
             [tech.compute.driver :as drv]
             [tech.datatype.core :as dtype]
             [clojure.test :refer :all]
             [clojure.core.matrix :as m]
             [clojure.core.matrix.stats :as stats]
-            [tech.resource :as resource]))
+            [tech.resource :as resource]
+            [tech.compute.verify.utils :as verify-utils]
+            [tech.datatype.java-unsigned :as unsigned]))
 
 
 (defmacro tensor-context
-  [driver datatype & body]
+  [stream datatype & body]
   `(resource/with-resource-context
-     (drv/with-compute-device
-       (drv/default-device ~driver)
-       (with-bindings {#'ct/*stream* (drv/get-default-stream)
-                       #'ct/*datatype* ~datatype}
-         ~@body))))
+     (with-bindings {#'ct/*stream* ~stream
+                     #'ct/*datatype* ~datatype}
+       ~@body)))
+
+(defmacro tensor-default-context
+  [driver datatype & body]
+  `(tensor-context (-> (compute/default-device ~driver)
+                       compute/default-stream)
+                   ~datatype
+                   ~@body))
 
 
 (defn assign-constant!
   [driver datatype]
-  (tensor-context
+  (tensor-default-context
    driver datatype
    (let [tensor (ct/->tensor (partition 3 (range 9)))]
      (is (= (ct/ecount tensor) 9))
@@ -48,7 +56,7 @@
   "Assignment must be capable of marshalling data.  This is an somewhat difficult challenge
 for the cuda backend."
   [driver datatype]
-  (tensor-context
+  (tensor-default-context
    driver datatype
    (let [tensor (ct/->tensor (partition 3 (range 9)))
          intermediate (ct/new-tensor [3 3] :datatype :int32)
@@ -66,15 +74,17 @@ for the cuda backend."
 
 (defn unary-op
   [driver datatype]
-  (tensor-context driver datatype
+  (tensor-default-context driver datatype
    (let [tens-a (ct/->tensor (partition 3 (range 9)))
          tens-b (ct/->tensor (partition 3 (repeat 9 1)))]
      (ct/unary-op! tens-b 2.5 tens-a :ceil)
      (is (m/equals (mapv #(Math/ceil (* ^double % (dtype/cast 2.5 datatype))) (range 9))
                    (ct/to-double-array tens-b)))
      (ct/unary-op! tens-b 1.0 tens-b :-)
-     (is (m/equals (mapv #(- (Math/ceil (* ^double % (dtype/cast 2.5 datatype)))) (range 9))
-                   (ct/to-double-array tens-b)))
+     (when-not (unsigned/unsigned-datatype? datatype)
+       (is (m/equals (mapv #(- (Math/ceil (* ^double % (dtype/cast 2.5 datatype))))
+                           (range 9))
+                     (ct/to-double-array tens-b))))
 
      (let [src-data [0 1 2 3 4]
            tens-src (ct/->tensor src-data)
@@ -91,7 +101,7 @@ for the cuda backend."
 
 (defn channel-op
   [driver datatype]
-  (tensor-context driver datatype
+  (tensor-default-context driver datatype
    (let [tens-a (ct/->tensor (partition 3 (partition 3 (range 18))))
          tens-chan (ct/in-place-reshape (ct/->tensor (range 3)) [3 1])
          tens-result (ct/new-tensor [2 3 3])]
@@ -105,7 +115,7 @@ for the cuda backend."
 
 (defn binary-constant-op
   [driver datatype]
-  (tensor-context
+  (tensor-default-context
    driver datatype
    (let [tens-a (ct/->tensor (partition 3 (range 9)))
          tens-b (ct/->tensor (partition 3 (repeat 9 1)))]
@@ -137,7 +147,7 @@ for the cuda backend."
 
 (defn binary-op
   [driver datatype]
-  (tensor-context
+  (tensor-default-context
    driver datatype
    (let [tens-a (ct/->tensor (partition 3 (range 9)))
          tens-b (ct/->tensor (partition 3 (repeat 9 2)))
@@ -261,7 +271,7 @@ for the cuda backend."
 (defn gemm
   ;;Test gemm, also test that submatrixes are working and defined correctly.
   [driver datatype]
-  (tensor-context
+  (tensor-default-context
    driver datatype
    (let [tens-a (ct/->tensor (partition 3 (range 9)))
          tens-b (ct/->tensor (partition 3 (repeat 9 2)))
@@ -295,7 +305,7 @@ for the cuda backend."
 
 (defn gemv
   [driver datatype]
-  (tensor-context
+  (tensor-default-context
    driver datatype
    (let [tens-a (ct/->tensor (partition 3 (range 12)))
          tens-b (ct/->tensor (repeat 4 2))
@@ -317,7 +327,7 @@ for the cuda backend."
 
 (defn ternary-op-select
   [driver datatype]
-  (tensor-context
+  (tensor-default-context
    driver datatype
    (let [dest (ct/->tensor (repeat 10 0))
          x-arg (ct/->tensor (range -5 5))
@@ -342,7 +352,7 @@ for the cuda backend."
 
 (defn unary-reduce
   [driver datatype]
-  (tensor-context
+  (tensor-default-context
    driver datatype
    (let [dest (ct/new-tensor [10 1])
          src-data [0 3 5 2 1 9 5 7 7 2]
@@ -362,7 +372,7 @@ for the cuda backend."
 
 (defn transpose
   [driver datatype]
-  (tensor-context
+  (tensor-default-context
    driver datatype
    (let [img-dim 4
          img-tensor (ct/->tensor
@@ -381,7 +391,7 @@ for the cuda backend."
 
 (defn mask
   [driver datatype]
-  (tensor-context
+  (tensor-default-context
    driver datatype
    (let [r-pix (int 1)
          g-pix (int 2)
@@ -416,7 +426,7 @@ for the cuda backend."
 
 (defn select
   [driver datatype]
-  (tensor-context
+  (tensor-default-context
    driver datatype
    (let [mat-tens (ct/->tensor (repeat 2 (partition 3 (range 9))))]
      (let [sel-tens (ct/select mat-tens :all :all [1 2])]
@@ -481,7 +491,7 @@ for the cuda backend."
 
 (defn select-with-persistent-vectors
   [driver datatype]
-  (tensor-context
+  (tensor-default-context
    driver datatype
    (let [mat-tens (ct/->tensor (repeat 2 (partition 3 (range 9))))
          channels-first (ct/transpose mat-tens [2 0 1])
@@ -497,7 +507,7 @@ for the cuda backend."
 
 (defn select-transpose-interaction
   [driver datatype]
-  (tensor-context
+  (tensor-default-context
    driver datatype
    (let [img-dim 4
          mat-tens (ct/->tensor (partition img-dim (repeat (* img-dim img-dim) [1 2 3])))
@@ -522,7 +532,7 @@ for the cuda backend."
 
 (defn rand-operator
   [driver datatype]
-  (tensor-context
+  (tensor-default-context
    driver datatype
    (testing "Gaussian rand"
      (let [test-vec (->> (range 1 11)
@@ -555,7 +565,7 @@ for the cuda backend."
 
 (defn indexed-tensor
   [driver datatype]
-  (tensor-context
+  (tensor-default-context
    driver datatype
    (let [mat-tens (ct/->tensor (repeat 2 (partition 3 (range 9))))
          ;;Indexing only guaranteed to work for integers
@@ -610,7 +620,7 @@ for the cuda backend."
 
 (defn magnitude-and-mag-squared
   [driver datatype]
-  (tensor-context
+  (tensor-default-context
    driver datatype
    (let [num-elems 10
          num-rows 10
@@ -639,7 +649,7 @@ for the cuda backend."
 
 (defn constrain-inside-hypersphere
   [driver datatype]
-  (tensor-context
+  (tensor-default-context
    driver datatype
    (let [num-elems 10
          num-rows 10

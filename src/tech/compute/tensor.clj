@@ -424,8 +424,9 @@ as one expects.  This means actually 2 conditions are checked:
          host-buffer (compute/allocate-host-buffer
                       (compute/->driver device)
                       n-elems (dtype/get-datatype tensor))]
-     (compute/copy-device->host stream (tensor->buffer tensor)
-                                0 host-buffer 0 n-elems)
+     (compute/copy-device->host (tensor->buffer tensor) 0
+                                host-buffer 0 n-elems
+                                :stream stream)
      ;;Block until the copy completes.
      (compute/sync-with-host stream)
      (dtype/copy! host-buffer 0 dest 0 n-elems options)
@@ -516,7 +517,7 @@ will determine the shape of the outgoing tensor."
         dev-buffer (compute/allocate-device-buffer device n-elems datatype)
         dimensions (dims/dimensions data-shape)]
     (dtype/copy-raw->item! data host-buffer 0 {:unchecked? unchecked?})
-    (compute/copy-host->device stream host-buffer 0 dev-buffer 0 n-elems)
+    (compute/copy-host->device host-buffer 0 dev-buffer 0 n-elems :stream stream)
     ;;The wait here is so that we can clean up the host buffer.
     (compute/sync-with-host stream)
     (resource/release host-buffer)
@@ -689,7 +690,7 @@ and the rest of the dimensions being squashed into n-rows."
       (compute/copy-device->device (tensor->buffer src) 0
                                    (tensor->buffer dest) 0
                                    (ecount src)
-                                   {:stream (infer-stream options dest)})
+                                   :stream (infer-stream options dest))
       (do
         (ensure-same-device dest src)
         (tm/assign! (infer-stream options dest) dest src)))))

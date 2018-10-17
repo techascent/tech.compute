@@ -1,8 +1,9 @@
 (ns tech.compute.verify.utils
   (:require [clojure.core.matrix :as m]
             [tech.resource :as resource]
-            [clojure.test :refer [deftest]]
+            [clojure.test :refer :all]
             [tech.datatype.java-unsigned :as unsigned]
+            [tech.datatype.java-primitive :as primitive]
             [tech.compute :as compute])
   (:import [java.math BigDecimal MathContext]))
 
@@ -28,11 +29,9 @@
 
 (defmacro datatype-list-tests
   [datatype-list test-name & body]
-  (println datatype-list)
   `(do
      ~@(for [datatype datatype-list]
          (do
-           (println datatype)
            `(deftest ~(symbol (str test-name "-" (name datatype)))
               (with-bindings {#'*datatype* ~datatype}
                 ~@body))))))
@@ -51,9 +50,18 @@
                         ~@body))
 
 
-(def ^:dynamic all-datatypes unsigned/datatypes)
-
-
 (defmacro def-all-dtype-test
   [test-name & body]
-  `(datatype-list-tests ~all-datatypes ~test-name ~@body))
+  `(datatype-list-tests ~unsigned/datatypes ~test-name ~@body))
+
+
+(defmacro def-all-dtype-exception-unsigned
+  "Some platforms can detect unsigned errors."
+  [test-name & body]
+  `(do
+     (datatype-list-tests ~primitive/datatypes ~test-name ~@body)
+     (datatype-list-tests ~unsigned/unsigned-datatypes ~test-name
+                          (is (try
+                                ~@body
+                                nil
+                                (catch Throwable e# e#))))))
