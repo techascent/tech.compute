@@ -6,5 +6,5 @@
   :dependencies [[org.clojure/clojure "1.9.0"]
                  [techascent/tech.datatype "0.5.13"]
                  [techascent/tech.parallel "1.0"]
-                 [techascent/tech.resource "1.0"]
+                 [techascent/tech.resource "2.0"]
                  [com.github.fommil.netlib/all "1.1.2" :extension "pom"]])
