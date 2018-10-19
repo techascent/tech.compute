@@ -177,9 +177,7 @@ Use with care; the synchonization primitives will just hang with this stream."
     (check-stream-error impl)
     (dtype/make-typed-buffer elem-type elem-count))
 
-  (allocate-rand-buffer [impl elem-count]
-    (check-stream-error impl)
-    (dtype/make-typed-buffer :float32 elem-count)))
+  (device->device-copy-compatible? [src-device dst-device] nil))
 
 
 (extend-type CPUDriver

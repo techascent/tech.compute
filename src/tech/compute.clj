@@ -145,6 +145,11 @@ intended usage of the buffer."
   (or stream (default-stream (->device device-buffer))))
 
 
+(defn device->device-copy-compatible?
+  [src-device dst-device]
+  (drv/device->device-copy-compatible? src-device dst-device))
+
+
 (defn copy-host->device
     "Copy from one device to another.  If no stream is provided then the destination
 buffer's device's default stream is used."

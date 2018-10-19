@@ -62,7 +62,9 @@ optimized for the desired use case.  Default is one-time."))
 with each other and the main thread using events.")
   (allocate-device-buffer [device elem-count elem-type options]
     "Allocate a device buffer.  This is the generic unit of data storage used for computation.
-No options at this time."))
+No options at this time.")
+  (device->device-copy-compatible? [src-device dst-device]
+    "When two devices differ, it may be possible to copy from src to dest device."))
 
 
 (defprotocol PBuffer

@@ -80,8 +80,8 @@ In general we want as much error checking and analysis done in this file as oppo
                       *stream*
                       (->> tensor-args
                            (filter tensor?)
-                           (map (comp compute-drv/default-stream
-                                      compute-drv/get-device))
+                           (map (comp compute/default-stream
+                                      compute/->device))
                            first))]
     retval
     (throw (ex-info "Stream is unset and no tensor arguments found."
@@ -154,27 +154,38 @@ In general we want as much error checking and analysis done in this file as oppo
 (defn same-device?
   [& args]
   (let [first-arg (first args)
-        main-device (compute-drv/get-device first-arg)]
+        main-device (compute/->device first-arg)]
     (->> (rest args)
-         (map #(compute-drv/get-device %))
+         (map #(compute/->device %))
          (every? #(identical? main-device %)))))
 
 
 (defn- ensure-same-device
-  "Given a set of tensors, ensure they share the same device.  Only assignment of identical
-types is guaranteed to work across devices."
+  "Given a set of tensors, ensure they share the same device.  Only assignment of
+  identical types is guaranteed to work across devices."
   [& args]
   (when-not-error (apply same-device? args)
     "Tensor arguments are not all on same device"
     {}))
 
 
+(defn- ensure-copy-compatible-devices
+  [src dest]
+  (when-not (or (same-device? src dest)
+                (compute/device->device-copy-compatible?
+                 (compute/->device src)
+                 (compute/->device dest)))
+    (throw (ex-info "Devices are not copy-compatible"
+                    {:src-driver (compute/driver-name (compute/->driver src))
+                     :dest-driver (compute/driver-name (compute/->driver dest))}))))
+
+
 (defn- ensure-elementwise-compatible
   "Ensure these two tensors are compatible for an elementwise operation
 that rerequires the items to have the same element count."
   [lhs rhs]
-  (when-not-error (identical? (compute-drv/get-driver lhs)
-                              (compute-drv/get-driver rhs))
+  (when-not-error (identical? (compute/->driver lhs)
+                              (compute/->driver rhs))
     "Tensor drivers do not match"
     {:lhs lhs
      :rhs rhs})
@@ -258,7 +269,7 @@ that rerequires the items to have the same element count."
 
 (defn- tensor->device
   [^Tensor tensor]
-  (compute-drv/get-device tensor))
+  (compute/->device tensor))
 
 
 (defn tensor->buffer
@@ -684,7 +695,7 @@ and the rest of the dimensions being squashed into n-rows."
     ;;This should not be here.  If the datatypes match
     ;;then device->device copy is possible assuming they are from
     ;;the same driver.
-    (ensure-same-device dest src)
+    (ensure-copy-compatible-devices src dest)
     (check-partial-alias dest src)
     (if (memcpy-semantics? dest src)
       (compute/copy-device->device (tensor->buffer src) 0
