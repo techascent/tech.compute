@@ -491,32 +491,37 @@ b. Combine densely-packed dimensions (not as simple)."
      :strides strides}))
 
 
-(defn monotonically-increasing?
+(def monotonic-operators
+  {:monotonically-increasing <
+   :monotonically-decreasing >})
+
+
+(defn- check-monotonic
   [item-seq]
-  (and (apply < item-seq)
-       (= (count item-seq)
-          (+ 1
-             (- (last item-seq)
-                (first item-seq))))))
-
-
-(defn sequence->monotonic-definition
-  "Given a sequence convert it to a map of
-{:type :monotonically-increasing
- :start start-idx
- :count count}"
-  [item-seq ^long dim]
-  (when-not-error (monotonically-increasing? item-seq)
-    "Argument is not monotonically increasing"
-    {:argument item-seq})
-  (when-not-error (> (long dim)
-                     (long (apply max 0 item-seq)))
-    "Argument out of range of dimension"
-    {:dimension dim
-     :argument item-seq})
-  {:type :monotonically-increasing
-   :start (first item-seq)
-   :count (count item-seq)})
+  (when-not (seq item-seq)
+    (throw (ex-info "Nil sequence in check monotonic" {})))
+  (let [n-elems (count item-seq)
+        first-item (first item-seq)
+        last-item (last item-seq)
+        min-item (min first-item last-item)
+        max-item (max first-item last-item)
+        retval {:min-item min-item
+                :max-item max-item}]
+    (if (= n-elems 1)
+      (assoc retval :type :monotonically-increasing)
+      (let [mon-op (->> monotonic-operators
+                        (map (fn [[op-name op]]
+                               (when (apply op item-seq)
+                                 op-name)))
+                        (remove nil?)
+                        first)]
+        (if (and (= n-elems
+                    (+ 1
+                       (- max-item
+                          min-item)))
+                 mon-op)
+          (assoc retval :type mon-op)
+          retval)))))
 
 
 (defn process-select-args
@@ -530,22 +535,21 @@ tensor - dynamically defined arbitrary subset of the dimension."
          (cond
            (= arg :all)
            {:type :monotonically-increasing
-            :start 0
-            :count dim}
+            :min-item 0
+            :max-item dim}
            (sequential? arg)
-           (if (monotonically-increasing? arg)
-             (sequence->monotonic-definition arg dim)
-             (let [max-arg-val (apply max arg)]
-               (if (>= max-arg-val dim)
+           (if-let [op-parts (check-monotonic arg)]
+             (let [{:keys [max-item type]} op-parts]
+               (when (>= max-item dim)
                  (throw (ex-info "Argument out of range"
-                                 {:max-arg-val max-arg-val
-                                  :dimension dim
-                                  :select-arg arg}))
+                                 (assoc op-parts :dimension dim))))
+               (if type
+                 op-parts
                  arg)))
            (number? arg) arg
            ;;Is this something shape-able
-           (vector? (m/shape arg))
-           (let [arg-shape (m/shape arg)]
+           (vector? (dtype/shape arg))
+           (let [arg-shape (dtype/shape arg)]
              (when-not (= 1 (count arg-shape))
                (throw (ex-info "Index arguments must be vectors"
                                {:arg-shape arg-shape})))
@@ -560,8 +564,7 @@ tensor - dynamically defined arbitrary subset of the dimension."
   "Breaking out the processing of select arguments from the reaction to that processing.
 This is to allow the select arguments to have different valid conditions; for instance
 select when doing dynamic compilation has different terms than when not."
-  [dimensions args & {:keys [arg-processor]
-                      :or {arg-processor process-select-args}}]
+  [dimensions args]
   (let [data-shp (shape dimensions)]
     (when-not-error (= (count data-shp)
                        (count args))
@@ -573,7 +576,7 @@ select when doing dynamic compilation has different terms than when not."
           rev-strides (reversev strides)
           ;;Convert all :all arguments to either numbers or vectors
           ;;performing argument checking if possible.
-          rev-args (->> (arg-processor shape args)
+          rev-args (->> (process-select-args shape args)
                         reversev)
           ;;Generate sequence of partial sums
           rev-shape-products (reduce (fn [sums item]
