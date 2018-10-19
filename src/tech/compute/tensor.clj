@@ -504,11 +504,11 @@ as one expects.  This means actually 2 conditions are checked:
 (defn ->tensor
   "Create a tensor from the data.  The shape of the data combined with the batch size
 will determine the shape of the outgoing tensor."
-  [data & {:keys [datatype unchecked?]
+  [data & {:keys [datatype unchecked? shape stream]
            :or {datatype *datatype*}
            :as options}]
   (let [stream (infer-stream options)
-        data-shape (m/shape data)
+        data-shape (or shape (m/shape data))
         n-elems (long (apply * data-shape))
         device (compute/->device stream)
         host-buffer (compute/allocate-host-buffer
