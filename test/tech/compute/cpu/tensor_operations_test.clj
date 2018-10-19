@@ -5,7 +5,8 @@
                      def-all-dtype-test
                      *datatype*
                      def-int-long-test
-                     test-wrapper]]
+                     test-wrapper
+                     def-all-dtype-exception-unsigned]]
             [clojure.test :refer :all]
             [tech.compute.cpu.driver :refer [driver]]
             [tech.compute.cpu.tensor-math]))
@@ -36,25 +37,25 @@
 (def-all-dtype-test exp-operation
   (verify-tensor-operations/exp-operation (driver) *datatype*))
 
-(def-all-dtype-test multiply-operation
+(def-all-dtype-exception-unsigned multiply-operation
   (verify-tensor-operations/multiply-operation (driver) *datatype*))
 
-(def-all-dtype-test add-operation
+(def-all-dtype-exception-unsigned add-operation
   (verify-tensor-operations/multiply-operation (driver) *datatype*))
 
-(def-all-dtype-test subtract-operation
+(def-all-dtype-exception-unsigned subtract-operation
   (verify-tensor-operations/subtract-operation (driver) *datatype*))
 
-(def-all-dtype-test >-operation
+(def-all-dtype-exception-unsigned >-operation
   (verify-tensor-operations/>-operation (driver) *datatype*))
 
-(def-all-dtype-test >=-operation
+(def-all-dtype-exception-unsigned >=-operation
   (verify-tensor-operations/>-operation (driver) *datatype*))
 
-(def-all-dtype-test <-operation
+(def-all-dtype-exception-unsigned <-operation
   (verify-tensor-operations/>-operation (driver) *datatype*))
 
-(def-all-dtype-test <=-operation
+(def-all-dtype-exception-unsigned <=-operation
   (verify-tensor-operations/>-operation (driver) *datatype*))
 
 (def-all-dtype-test bit-and-operation

@@ -3,7 +3,6 @@
             [tech.datatype.java-primitive :as primitive]
             [tech.datatype.java-unsigned :as unsigned]
             [tech.compute.tensor.math :as tm]
-            [tech.compute.driver :as compute-drv]
             [tech.parallel :as parallel]
             [clojure.core.matrix.macros :refer [c-for]]
             [tech.compute.math-util :as cmu]
@@ -934,21 +933,25 @@
 
   (binary-op-constant! [stream dest x x-alpha scalar operation reverse-operands?]
     (cpu-driver/with-stream-dispatch stream
-      ((get binary-op-constant-table [(dtype/get-datatype dest) operation reverse-operands?])
+      ((get binary-op-constant-table [(dtype/get-datatype dest) operation
+                                      reverse-operands?])
        (->buffer dest) (->dimensions dest)
        (->buffer x) (->dimensions x) x-alpha
        scalar (max (ct/ecount dest) (ct/ecount x)))))
 
-  (binary-accum! [stream dest dest-alpha y y-alpha operation reverse-operands? dest-requires-cas?]
+  (binary-accum! [stream dest dest-alpha y y-alpha operation
+                  reverse-operands? dest-requires-cas?]
     (let [n-elems (max (ct/ecount dest) (ct/ecount y))]
       (if dest-requires-cas?
         (cpu-driver/with-stream-dispatch stream
-          ((get binary-accum-table [(dtype/get-datatype dest) operation reverse-operands?])
+          ((get binary-accum-table [(dtype/get-datatype dest) operation
+                                    reverse-operands?])
            (->buffer dest) (->dimensions dest) dest-alpha
            (->buffer y) (->dimensions y) y-alpha
            n-elems))
-        ;;If the operation does not require a CAS op then we can use the full parallelism of the
-        ;;binary op.  Unfortunately if it does then we have to do a lot of things in single-threaded mode.
+        ;;If the operation does not require a CAS op then we can use the full
+        ;;parallelism of the binary op.  Unfortunately if it does then we have to do a
+        ;;lot of things in single-threaded mode.
         (if reverse-operands?
           (tm/binary-op! stream dest y y-alpha dest dest-alpha operation)
           (tm/binary-op! stream dest dest dest-alpha y y-alpha operation)))))
@@ -1058,15 +1061,6 @@
   (drv/sync-with-host ct/*stream*)
   (let [dev-buffer (ct/tensor->buffer cpu-tensor)]
     (dtype/->array dev-buffer)))
-
-
-(defmacro tensor-context
-  [& body]
-  `(resource/with-resource-context
-     (let [device# (drv/default-device (cpu-driver/driver))
-           stream# (drv/create-stream :device device#)]
-       (ct/with-stream stream#
-         ~@body))))
 
 
 (defn typed-bufferable->tensor

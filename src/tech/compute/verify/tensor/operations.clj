@@ -4,18 +4,12 @@
             [tech.compute.driver :as drv]
             [tech.compute.tensor :as ct]
             [tech.compute.tensor.operations :as tops]
-            [tech.datatype.core :as dtype]))
+            [tech.datatype.core :as dtype]
+            [tech.compute.verify.tensor :refer [tensor-default-context]]))
 
-(defmacro tensor-context
-  [driver datatype & body]
-  `(drv/with-compute-device
-     (drv/default-device ~driver)
-     (with-bindings {#'ct/*stream* (drv/get-default-stream)
-                     #'ct/*datatype* ~datatype}
-       ~@body)))
 
 (defn unary-operation [driver datatype op-fn arg src-data compare-result]
-  (tensor-context
+  (tensor-default-context
    driver datatype
    (let [tens-a (ct/->tensor src-data)
          tens-b (tops/new-tensor tens-a)
@@ -107,7 +101,7 @@
                     (mapv #(dtype/cast (Math/exp (double %)) datatype) data))))
 
 (defn binary-operation [driver datatype op-fn src-data-a src-data-b compare-result]
-  (tensor-context
+  (tensor-default-context
    driver datatype
    (let [tens-a (ct/->tensor src-data-a)
          tens-b (ct/->tensor src-data-b)
@@ -209,7 +203,7 @@
                     [0 1 1 0]))
 
 (defn where-operation [driver datatype]
-  (tensor-context
+  (tensor-default-context
    driver datatype
    (let [test-ten (ct/->tensor [1 0 0 1 0])
          then-ten (ct/->tensor [1 2 3 4 5])
@@ -220,7 +214,7 @@
                    (ct/to-double-array result))))))
 
 (defn new-tensor-operation [driver datatype]
-  (tensor-context
+  (tensor-default-context
    driver datatype
    (let [test-ten (ct/->tensor [1 0 0 1 0])
          new-ten (tops/new-tensor test-ten)]

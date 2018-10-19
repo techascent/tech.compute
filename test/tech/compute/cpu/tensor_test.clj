@@ -5,7 +5,8 @@
                      def-all-dtype-test
                      *datatype*
                      def-int-long-test
-                     test-wrapper]]
+                     test-wrapper
+                     def-all-dtype-exception-unsigned]]
             [clojure.test :refer :all]
             [tech.compute.cpu.driver :refer [driver]]
             [tech.compute.cpu.tensor-math :as cpu-tm]
@@ -24,11 +25,11 @@
   (verify-tensor/assign-marshal (driver) *datatype*))
 
 
-(def-all-dtype-test binary-constant-op
+(def-all-dtype-exception-unsigned binary-constant-op
   (verify-tensor/binary-constant-op (driver) *datatype*))
 
 
-(def-all-dtype-test binary-op
+(def-all-dtype-exception-unsigned binary-op
   (verify-tensor/binary-op (driver) *datatype* ))
 
 
@@ -48,7 +49,7 @@
   (verify-tensor/gemv (driver) *datatype*))
 
 
-(def-all-dtype-test ternary-op-select
+(def-all-dtype-exception-unsigned ternary-op-select
   (verify-tensor/ternary-op-select (driver) *datatype*))
 
 
