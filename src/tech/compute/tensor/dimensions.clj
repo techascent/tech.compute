@@ -492,8 +492,8 @@ b. Combine densely-packed dimensions (not as simple)."
 
 
 (def monotonic-operators
-  {:monotonically-increasing <
-   :monotonically-decreasing >})
+  {:+ <
+   :- >})
 
 
 (defn- check-monotonic
@@ -508,7 +508,7 @@ b. Combine densely-packed dimensions (not as simple)."
         retval {:min-item min-item
                 :max-item max-item}]
     (if (= n-elems 1)
-      (assoc retval :type :monotonically-increasing)
+      (assoc retval :type :+)
       (let [mon-op (->> monotonic-operators
                         (map (fn [[op-name op]]
                                (when (apply op item-seq)
@@ -524,6 +524,111 @@ b. Combine densely-packed dimensions (not as simple)."
           retval)))))
 
 
+(def ^:private select-arg-types #{:number :typed-sequence :untyped-sequence})
+(def ^:private dimension-types #{:number :typed-sequence :untyped-sequence})
+
+
+(defn- item->select-arg-type
+  [dim-or-arg]
+  (cond (number? dim-or-arg)
+        :number
+        (:type dim-or-arg)
+        :typed-sequence
+        (:sequence dim-or-arg)
+        :untyped-sequence))
+
+
+(defmulti ^:private process-select-arg
+  (fn [dim select-arg]
+    (let [dim-type (item->select-arg-type dim)
+          select-arg-type (item->select-arg-type select-arg)]
+      [dim-type select-arg-type])))
+
+
+(defmethod process-select-arg [:number :number]
+  [dim select-arg]
+  (when-not (< (long select-arg) (long dim))
+    (throw (ex-info "Select argument out of range"
+                    {:dimension dim
+                     :select-arg select-arg}))))
+
+
+(defmethod process-select-arg [:number :typed-sequence]
+  [dim select-arg]
+  (let [{:keys [item-max type]} select-arg]
+    (when-not (< (long item-max) (long dim))
+      (throw (ex-info "Select argument out of range"
+                      {:dimension dim
+                       :select-arg select-arg})))
+    select-arg))
+
+
+(defmethod process-select-arg [:number :untyped-sequence]
+  [dim select-arg]
+  (let [{:keys [item-max sequence]} select-arg]
+    (when-not (< (long item-max) (long dim))
+      (throw (ex-info "Select argument out of range"
+                      {:dimension dim
+                       :select-arg sequence})))
+    sequence))
+
+
+(defmethod process-select-arg [:typed-sequence :typed-sequence]
+  [dim select-arg]
+  (let [{dim-type :type
+         dim-min :min-item
+         dim-max :max-item} dim
+        {arg-type :type
+         arg-min :min-item
+         arg-max :max-item} select-arg]
+    {:type (if (= arg-type :+)
+                   dim-type
+                   (if (= dim-type :-)
+                     :+
+                     :-))
+     :item-min (max (long dim-min) (long arg-min))
+     :item-max (min (long dim-max) (long arg-max))}))
+
+
+(defn- apply-monotonic-result-to-sequence
+  [{:keys [type min-item max-item]} item-seq]
+  (if-not type
+    item-seq
+    (->> (map-indexed vector item-seq)
+         ((fn [item-seq]
+            (if (= type :-)
+              (reverse item-seq)
+              item-seq)))
+         (map (fn [[idx item]]
+                (if (and (>= min-item idx)
+                         (<= max-item idx))
+                  item)))
+         (remove nil?)
+         vec)))
+
+
+(defn- apply-monotonic-result-to-number
+  [{:keys [type min-item max-item] :as mono-op} select-arg item-dim]
+  (when (>= (long item-dim)
+            (long max-item))
+    (throw (ex-info "Argument out of range"
+                    {:max-item max-item
+                     :select-argument select-arg
+                     :dimension item-dim})))
+  (if-not type
+    select-arg
+    (if (= type :+)
+      (- (long max-item)
+         (long min-item))
+      mono-op)))
+
+
+(defn- apply-monotonic-result-to-monotonic-result
+  [{:keys [type min-item max-item] :as mono-op} {:keys [type min-item max-item] :as mono-op}]
+
+  )
+
+
 (defn process-select-args
   "Default processing of select arguments.  This allows
 :all - all indexes in the dimension
@@ -534,18 +639,27 @@ tensor - dynamically defined arbitrary subset of the dimension."
   (map (fn [dim arg]
          (cond
            (= arg :all)
-           {:type :monotonically-increasing
-            :min-item 0
-            :max-item dim}
+           (if (number? dim)
+             {:type :+
+              :min-item 0
+              :max-item dim}
+             dim)
            (sequential? arg)
            (if-let [op-parts (check-monotonic arg)]
              (let [{:keys [max-item type]} op-parts]
-               (when (>= max-item dim)
-                 (throw (ex-info "Argument out of range"
-                                 (assoc op-parts :dimension dim))))
-               (if type
-                 op-parts
-                 arg)))
+               (cond
+                 (number? dim)
+                 (do
+                   (when (>= max-item dim)
+                     (throw (ex-info "Argument out of range"
+                                     (assoc op-parts :dimension dim))))
+                   (if type
+                     op-parts
+                     arg))
+                 (sequential? dim)
+                 (apply-monotonic-result-to-sequence op-parts dim)
+                 (map? dim)
+                 (apply-monotonic-result-to-map op-parts dim))))
            (number? arg) arg
            ;;Is this something shape-able
            (vector? (dtype/shape arg))
@@ -591,8 +705,10 @@ select when doing dynamic compilation has different terms than when not."
                                    (+ (long idx)
                                       (* (long (or prev-shape-product 1))
                                          (long (cond
-                                                 (number? arg) arg
-                                                 (= :monotonically-increasing (get arg :type)) (long (get arg :start))
+                                                 (number? arg)
+                                                 arg
+                                                 (map? arg)
+                                                 (long (get arg :min-item))
                                                  ;;If we are doing indirect indexing then assume 0 relative index
                                                  :else
                                                  0)))))
@@ -606,8 +722,11 @@ select when doing dynamic compilation has different terms than when not."
                            reversev)
           new-shape (->> rev-arg-shape-strides
                          (map #(let [item (first %)]
-                                 (if (= :monotonically-increasing (get item :type))
-                                   (long (get item :count))
+                                 (if (map? item)
+                                   (if (or (= (:type item) :+))
+                                     (- (long (get item :max-item))
+                                        (long (get item :min-item)))
+                                     item)
                                    item)))
                          reversev)]
       {:dimensions {:shape new-shape
