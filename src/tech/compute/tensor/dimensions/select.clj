@@ -1,96 +1,12 @@
 (ns tech.compute.tensor.dimensions.select
   "Selecting subsets from a larger set of dimensions leads to its own algebra."
   (:require [tech.compute.tensor.protocols :refer [tensor? dense?]]
+            [tech.compute.tensor.dimensions.shape :as shape]
             [clojure.core.matrix :as m]
             [tech.datatype.core :as dtype]))
 
 (set! *unchecked-math* :warn-on-boxed)
 (set! *warn-on-reflection* true)
-
-
-(defn reversev
-  [item-seq]
-  (if (vector? item-seq)
-    (let [len (count item-seq)
-          retval (transient [])]
-      (loop [idx 0]
-        (if (< idx len)
-          (do
-            (conj! retval (item-seq (- len idx 1)))
-            (recur (inc idx)))
-          (persistent! retval))))
-    (vec (reverse item-seq))))
-
-
-(def monotonic-operators
-  {:+ <
-   :- >})
-
-
-(defn- classify-sequence-type
-  [item-seq]
-  ;;Normalize this to account for single digit numbers
-  (let [item-seq (if (number? item-seq)
-                   [item-seq]
-                   item-seq)]
-    (when-not (seq item-seq)
-      (throw (ex-info "Nil sequence in check monotonic" {})))
-    (let [n-elems (count item-seq)
-          first-item (long (first item-seq))
-          last-item (long (last item-seq))
-          min-item (min first-item last-item)
-          max-item (max first-item last-item)
-          retval {:min-item min-item
-                  :max-item max-item}]
-      (if (= n-elems 1)
-        (assoc retval :type :+)
-        (let [mon-op (->> monotonic-operators
-                          (map (fn [[op-name op]]
-                                 (when (apply op item-seq)
-                                   op-name)))
-                          (remove nil?)
-                          first)]
-          (if (and (= n-elems
-                      (+ 1
-                         (- max-item
-                            min-item)))
-                   mon-op)
-            (assoc retval :type mon-op)
-            (assoc retval :sequence (vec item-seq))))))))
-
-
-(defn is-classified-sequence?
-  [item]
-  (map? item))
-
-
-(defn- classified-sequence->sequence
-  [{:keys [min-item max-item type sequence]}]
-  (->> (if sequence
-         sequence
-         (case type
-           :+ (range min-item (inc (long max-item)))
-           :- (range max-item (dec (long min-item)) -1)))
-       ;;Ensure dtype/get-value works on result.
-       vec))
-
-
-(defn- combine-classified-sequences
-  "Room for optimization here.  But simplest way is easiest to get correct."
-  [source-sequence select-sequence]
-  (let [last-valid-index (if (:type source-sequence)
-                           (- (long (:max-item source-sequence))
-                              (long (:min-item source-sequence)))
-                           (- (count (:sequence source-sequence))
-                              1))]
-    (when (> (long (:max-item select-sequence))
-             last-valid-index)
-      (throw (ex-info "Select argument out of range" {:dimension source-sequence
-                                                      :select-arg select-sequence}))))
-  (let [source-sequence (classified-sequence->sequence source-sequence)]
-    (->> (classified-sequence->sequence select-sequence)
-         (map #(get source-sequence (long %)))
-         classify-sequence-type)))
 
 
 (defn- expand-dimension
@@ -100,7 +16,7 @@
          :min-item 0
          :max-item (- (long dim) 1)}
         (map? dim) dim
-        (sequential? dim) (classify-sequence-type dim)
+        (sequential? dim) (shape/classify-sequence dim)
         (tensor? dim) dim
         :else
         (throw (ex-info "Failed to recognize dimension type"
@@ -124,26 +40,15 @@
 (defn- expand-select-arg
   [select-arg]
   (cond
-    (number? select-arg) (classify-sequence-type select-arg)
+    (number? select-arg) (shape/classify-sequence select-arg)
     (map? select-arg) select-arg
-    (sequential? select-arg) (classify-sequence-type select-arg)
+    (sequential? select-arg) (shape/classify-sequence select-arg)
     (= :all select-arg) select-arg
     (= :lla select-arg) select-arg
     (tensor? select-arg) (verify-tensor-indexer select-arg)
     :else
     (throw (ex-info "Unrecognized select argument type"
                     {:select-arg select-arg}))))
-
-
-(defn- reverse-classified-sequence
-  [{:keys [type sequence] :as item}]
-  (if sequence
-    (assoc item :sequence
-           (reversev sequence))
-    (assoc item :type
-           (if (= type :+)
-             :-
-             :+))))
 
 
 (defn apply-select-arg-to-dimension
@@ -175,7 +80,7 @@ the selection applied."
       (case dim-type
         :tensor (throw (ex-info "Can not reverse tensor indexers"
                                 {:dimension dim :select-arg select-arg}))
-        :classified-sequence (reverse-classified-sequence dim))
+        :classified-sequence (shape/reverse-classified-sequence dim))
       (= :tensor dim-type)
       (throw (ex-info "Only :all select types are supported on tensor dimensions"
                       {:dimension dim
@@ -186,7 +91,7 @@ the selection applied."
        (assert (and (= dim-type :classified-sequence)
                     (= select-type :classified-sequence))
                "Internal logic failure")
-       (combine-classified-sequences dim select-arg)))))
+       (shape/combine-classified-sequences dim select-arg)))))
 
 
 (defn dimensions->simpified-dimensions
@@ -232,17 +137,3 @@ Returns:
                 (map vector dimension-seq stride-seq))]
     {:dimension-seq dimension-seq
      :offset offset}))
-
-
-(defn classified-sequence->elem-idx
-  ^long [{:keys [type min-item max-item sequence] :as dim} ^long shape-idx]
-  (let [min-item (long min-item)
-        max-item (long max-item)
-        last-idx (- max-item min-item)]
-    (when (> shape-idx last-idx)
-      (throw (ex-info "Element access out of range"
-                      {:shape-idx shape-idx
-                       :dimension dim})))
-    (if (= :+ type)
-      (+ min-item shape-idx)
-      (- max-item shape-idx))))
