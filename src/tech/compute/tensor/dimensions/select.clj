@@ -59,6 +59,11 @@
             (assoc retval :sequence (vec item-seq))))))))
 
 
+(defn is-classified-sequence?
+  [item]
+  (map? item))
+
+
 (defn- classified-sequence->sequence
   [{:keys [min-item max-item type sequence]}]
   (->> (if sequence
@@ -150,11 +155,10 @@ the selection applied."
         ;;Select arg is now a map, a keyword, or a tensor
         select-arg (expand-select-arg select-arg)
         dim-type (cond (map? dim) :classified-sequence
-                          (tensor? dim) :tensor)
+                       (tensor? dim) :tensor)
         select-type (cond (map? select-arg) :classified-sequence
                           (tensor? select-arg) :tensor
                           (keyword? select-arg) :keyword)]
-
     (cond
       (= :tensor select-type)
       (do
@@ -228,3 +232,17 @@ Returns:
                 (map vector dimension-seq stride-seq))]
     {:dimension-seq dimension-seq
      :offset offset}))
+
+
+(defn classified-sequence->elem-idx
+  ^long [{:keys [type min-item max-item sequence] :as dim} ^long shape-idx]
+  (let [min-item (long min-item)
+        max-item (long max-item)
+        last-idx (- max-item min-item)]
+    (when (> shape-idx last-idx)
+      (throw (ex-info "Element access out of range"
+                      {:shape-idx shape-idx
+                       :dimension dim})))
+    (if (= :+ type)
+      (+ min-item shape-idx)
+      (- max-item shape-idx))))
