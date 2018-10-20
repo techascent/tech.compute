@@ -8,7 +8,8 @@
   number.  This means that that dimension should be indexed indirectly.  If a shape has
   any index buffers then it is considered an indirect shape."
   (:require [clojure.core.matrix :as m]
-            [tech.datatype.core :as dtype]))
+            [tech.datatype.core :as dtype]
+            [tech.compute.tensor.dimensions.select :as dims-select]))
 
 
 (defmacro when-not-error
@@ -17,18 +18,7 @@
      (throw (ex-info ~error-msg ~extra-data))))
 
 
-(defn reversev
-  [item-seq]
-  (if (vector? item-seq)
-    (let [len (count item-seq)
-          retval (transient [])]
-      (loop [idx 0]
-        (if (< idx len)
-          (do
-            (conj! retval (item-seq (- len idx 1)))
-            (recur (inc idx)))
-          (persistent! retval))))
-    (vec (reverse item-seq))))
+(def reversev dims-select/reversev)
 
 
 (defn map-reversev
@@ -45,17 +35,22 @@
     (vec (reverse item-seq))))
 
 
-(defn- disambiguate-shape-entry
+(defn- shape-entry->long
   "Disambiguate a shape entry from a union of long or tensor to just a long."
   ^long [shape-entry]
-  (if (number? shape-entry)
+  (cond
+    (number? shape-entry)
     (long shape-entry)
+    (map? shape-entry)
+    (+ 1 (- (long (:max-item shape-entry))
+            (long (:min-item shape-entry))))
+    :else
     (long (m/ecount shape-entry))))
 
 
-(defn disambiguate-shape
+(defn shape->long-vec
   [shape-vec]
-  (mapv disambiguate-shape-entry shape-vec))
+  (mapv shape-entry->long shape-vec))
 
 
 (defn direct-shape?
@@ -131,7 +126,7 @@
 (defn ecount
   "Return the element count indicated by the dimension map"
   ^long [{:keys [shape]}]
-  (long (apply * (disambiguate-shape shape))))
+  (long (apply * (shape->long-vec shape))))
 
 
 (defn- ensure-direct-shape
@@ -167,7 +162,7 @@
 
 (defn shape
   [{:keys [shape]}]
-  (disambiguate-shape shape))
+  (shape->long-vec shape))
 
 
 (defn strides
@@ -491,256 +486,37 @@ b. Combine densely-packed dimensions (not as simple)."
      :strides strides}))
 
 
-(def monotonic-operators
-  {:+ <
-   :- >})
+(defn select
+  "Expanded implementation of the core.matrix select function call.  Each dimension must
+  have an entry and each entry may be:
+:all (identity)
+:lla (reverse)
+persistent-vector: [0 1 2 3 4 4 5] (not supported by all backends)
+map: {:type [:+ :-]
+      :min-item 0
+      :max-item 50}
+Monotonically increasing/decreasing bounded (inclusive) sequences
+tensor : int32, dense vector only.  Not supported by all backends.
 
-
-(defn- check-monotonic
-  [item-seq]
-  (when-not (seq item-seq)
-    (throw (ex-info "Nil sequence in check monotonic" {})))
-  (let [n-elems (count item-seq)
-        first-item (first item-seq)
-        last-item (last item-seq)
-        min-item (min first-item last-item)
-        max-item (max first-item last-item)
-        retval {:min-item min-item
-                :max-item max-item}]
-    (if (= n-elems 1)
-      (assoc retval :type :+)
-      (let [mon-op (->> monotonic-operators
-                        (map (fn [[op-name op]]
-                               (when (apply op item-seq)
-                                 op-name)))
-                        (remove nil?)
-                        first)]
-        (if (and (= n-elems
-                    (+ 1
-                       (- max-item
-                          min-item)))
-                 mon-op)
-          (assoc retval :type mon-op)
-          retval)))))
-
-
-(def ^:private select-arg-types #{:number :typed-sequence :untyped-sequence})
-(def ^:private dimension-types #{:number :typed-sequence :untyped-sequence})
-
-
-(defn- item->select-arg-type
-  [dim-or-arg]
-  (cond (number? dim-or-arg)
-        :number
-        (:type dim-or-arg)
-        :typed-sequence
-        (:sequence dim-or-arg)
-        :untyped-sequence))
-
-
-(defmulti ^:private process-select-arg
-  (fn [dim select-arg]
-    (let [dim-type (item->select-arg-type dim)
-          select-arg-type (item->select-arg-type select-arg)]
-      [dim-type select-arg-type])))
-
-
-(defmethod process-select-arg [:number :number]
-  [dim select-arg]
-  (when-not (< (long select-arg) (long dim))
-    (throw (ex-info "Select argument out of range"
-                    {:dimension dim
-                     :select-arg select-arg}))))
-
-
-(defmethod process-select-arg [:number :typed-sequence]
-  [dim select-arg]
-  (let [{:keys [item-max type]} select-arg]
-    (when-not (< (long item-max) (long dim))
-      (throw (ex-info "Select argument out of range"
-                      {:dimension dim
-                       :select-arg select-arg})))
-    select-arg))
-
-
-(defmethod process-select-arg [:number :untyped-sequence]
-  [dim select-arg]
-  (let [{:keys [item-max sequence]} select-arg]
-    (when-not (< (long item-max) (long dim))
-      (throw (ex-info "Select argument out of range"
-                      {:dimension dim
-                       :select-arg sequence})))
-    sequence))
-
-
-(defmethod process-select-arg [:typed-sequence :typed-sequence]
-  [dim select-arg]
-  (let [{dim-type :type
-         dim-min :min-item
-         dim-max :max-item} dim
-        {arg-type :type
-         arg-min :min-item
-         arg-max :max-item} select-arg]
-    {:type (if (= arg-type :+)
-                   dim-type
-                   (if (= dim-type :-)
-                     :+
-                     :-))
-     :item-min (max (long dim-min) (long arg-min))
-     :item-max (min (long dim-max) (long arg-max))}))
-
-
-(defn- apply-monotonic-result-to-sequence
-  [{:keys [type min-item max-item]} item-seq]
-  (if-not type
-    item-seq
-    (->> (map-indexed vector item-seq)
-         ((fn [item-seq]
-            (if (= type :-)
-              (reverse item-seq)
-              item-seq)))
-         (map (fn [[idx item]]
-                (if (and (>= min-item idx)
-                         (<= max-item idx))
-                  item)))
-         (remove nil?)
-         vec)))
-
-
-(defn- apply-monotonic-result-to-number
-  [{:keys [type min-item max-item] :as mono-op} select-arg item-dim]
-  (when (>= (long item-dim)
-            (long max-item))
-    (throw (ex-info "Argument out of range"
-                    {:max-item max-item
-                     :select-argument select-arg
-                     :dimension item-dim})))
-  (if-not type
-    select-arg
-    (if (= type :+)
-      (- (long max-item)
-         (long min-item))
-      mono-op)))
-
-
-(defn- apply-monotonic-result-to-monotonic-result
-  [{:keys [type min-item max-item] :as mono-op} {:keys [type min-item max-item] :as mono-op}]
-
-  )
-
-
-(defn process-select-args
-  "Default processing of select arguments.  This allows
-:all - all indexes in the dimension
-[2 3 4] or (range 5) - monotonically increasing subset of the dimension
-  that starts at an arbitrary index.
-tensor - dynamically defined arbitrary subset of the dimension."
-  [shape args]
-  (map (fn [dim arg]
-         (cond
-           (= arg :all)
-           (if (number? dim)
-             {:type :+
-              :min-item 0
-              :max-item dim}
-             dim)
-           (sequential? arg)
-           (if-let [op-parts (check-monotonic arg)]
-             (let [{:keys [max-item type]} op-parts]
-               (cond
-                 (number? dim)
-                 (do
-                   (when (>= max-item dim)
-                     (throw (ex-info "Argument out of range"
-                                     (assoc op-parts :dimension dim))))
-                   (if type
-                     op-parts
-                     arg))
-                 (sequential? dim)
-                 (apply-monotonic-result-to-sequence op-parts dim)
-                 (map? dim)
-                 (apply-monotonic-result-to-map op-parts dim))))
-           (number? arg) arg
-           ;;Is this something shape-able
-           (vector? (dtype/shape arg))
-           (let [arg-shape (dtype/shape arg)]
-             (when-not (= 1 (count arg-shape))
-               (throw (ex-info "Index arguments must be vectors"
-                               {:arg-shape arg-shape})))
-             arg)
-           :else
-           (throw (ex-info "argument to select of incorrect type"
-                           {:arg arg}))))
-       shape args))
-
-
-(defn select-detail
-  "Breaking out the processing of select arguments from the reaction to that processing.
-This is to allow the select arguments to have different valid conditions; for instance
-select when doing dynamic compilation has different terms than when not."
-  [dimensions args]
-  (let [data-shp (shape dimensions)]
+;;Some examples
+https://cloojure.github.io/doc/core.matrix/clojure.core.matrix.html#var-select"
+  [dimensions & args]
+    (let [data-shp (shape dimensions)]
     (when-not-error (= (count data-shp)
                        (count args))
       "arg count must match shape count"
       {:shape data-shp
        :args (vec args)})
     (let [{:keys [shape strides]} dimensions
-          rev-shape (reversev shape)
-          rev-strides (reversev strides)
-          ;;Convert all :all arguments to either numbers or vectors
-          ;;performing argument checking if possible.
-          rev-args (->> (process-select-args shape args)
-                        reversev)
-          ;;Generate sequence of partial sums
-          rev-shape-products (reduce (fn [sums item]
-                                   (if sums
-                                     (conj sums (* (disambiguate-shape-entry item)
-                                                   (long (last sums))))
-                                     [item]))
-                                 nil
-                                 rev-shape)
-          ;;Calculate the first element index of the new item assuming
-          first-elem-idx (reduce (fn [idx [arg prev-shape-product]]
-                                   (+ (long idx)
-                                      (* (long (or prev-shape-product 1))
-                                         (long (cond
-                                                 (number? arg)
-                                                 arg
-                                                 (map? arg)
-                                                 (long (get arg :min-item))
-                                                 ;;If we are doing indirect indexing then assume 0 relative index
-                                                 :else
-                                                 0)))))
-                                 0
-                                 (map vector rev-args
-                                      (concat [nil] rev-shape-products)))
-          elem-addr (elem-idx->addr rev-shape rev-strides rev-shape first-elem-idx)
-          rev-arg-shape-strides (->> (map vector rev-args rev-strides)
-                                     (remove (comp number? first)))
-          new-strides (->> (map second rev-arg-shape-strides)
-                           reversev)
-          new-shape (->> rev-arg-shape-strides
-                         (map #(let [item (first %)]
-                                 (if (map? item)
-                                   (if (or (= (:type item) :+))
-                                     (- (long (get item :max-item))
-                                        (long (get item :min-item)))
-                                     item)
-                                   item)))
-                         reversev)]
-      {:dimensions {:shape new-shape
-                    :strides new-strides}
-       :elem-offset elem-addr})))
-
-
-(defn select
-  "Limited implementation of the core.matrix select function call.  Each dimension must have an
-entry and each entry may be:
-:all
-monotonically increasing inclusive range
-Index tensor (has exactly 1 dimension and it itself has a direct non-strided shape).
-see:
-https://cloojure.github.io/doc/core.matrix/clojure.core.matrix.html#var-select"
-  [dimensions & args]
-  (select-detail dimensions args))
+          shape (map dims-select/apply-select-arg-to-dimension shape args)
+          {shape :dimension-seq
+           offset :offset} (dims-select/dimensions->simpified-dimensions shape strides)
+          [shape strides] (reduce (fn [[shape strides] [dim stride]]
+                                    (if-not (= 1 dim)
+                                      [(conj shape dim) (conj strides stride)]
+                                      [shape strides]))
+                                  [[] []]
+                                  (map vector shape strides))]
+      {:dimensions {:shape shape
+                    :strides strides}
+       :elem-offset offset})))
