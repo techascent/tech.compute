@@ -163,12 +163,15 @@ to be increasing."
   (apply ensure-external-library-compatible tensors))
 
 
-(defn ensure-vector-indexable
-  "Ensure that a tensor can be indexed like a vector in blas-type methods.
-So either it is dense *or* num-columns is 1"
-  [& args]
-  (doseq [arg args]
-    (when-not-error (or (tens-proto/dense? arg)
-                        (= (last (dtype/shape arg)) 1))
-      "Argument is not vector-indexable"
-      {:tensor arg})))
+(defmacro ensure-matrix
+  [item]
+  `(when-not-error (= 2 (count (dtype/shape ~item)))
+     (format "Argument %s appears to not be a matrix" ~(str item))
+     {:shape (dtype/shape ~(str item))}))
+
+
+(defmacro ensure-vector
+  [item]
+  `(when-not-error (= 1 (count (dtype/shape ~item)))
+     (format "Argument %s appears to not be a vector" ~(str item))
+     {:shape (dtype/shape ~(str item))}))

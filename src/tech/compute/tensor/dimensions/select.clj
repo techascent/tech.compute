@@ -2,6 +2,7 @@
   "Selecting subsets from a larger set of dimensions leads to its own algebra."
   (:require [tech.compute.tensor.protocols :refer [tensor? dense?]]
             [tech.compute.tensor.dimensions.shape :as shape]
+            [tech.compute.tensor.utils :refer [when-not-error]]
             [clojure.core.matrix :as m]
             [tech.datatype.core :as dtype]))
 
@@ -15,9 +16,9 @@
         {:type :+
          :min-item 0
          :max-item (- (long dim) 1)}
-        (map? dim) dim
-        (sequential? dim) (shape/classify-sequence dim)
         (tensor? dim) dim
+        (shape/classified-sequence? dim) dim
+        (sequential? dim) (shape/classify-sequence dim)
         :else
         (throw (ex-info "Failed to recognize dimension type"
                         {:dimension dim}))))
@@ -41,11 +42,11 @@
   [select-arg]
   (cond
     (number? select-arg) (shape/classify-sequence select-arg)
-    (map? select-arg) select-arg
+    (tensor? select-arg) (verify-tensor-indexer select-arg)
+    (shape/classified-sequence? select-arg) select-arg
     (sequential? select-arg) (shape/classify-sequence select-arg)
     (= :all select-arg) select-arg
     (= :lla select-arg) select-arg
-    (tensor? select-arg) (verify-tensor-indexer select-arg)
     :else
     (throw (ex-info "Unrecognized select argument type"
                     {:select-arg select-arg}))))
@@ -59,21 +60,21 @@ the selection applied."
   (let [dim (expand-dimension dim)
         ;;Select arg is now a map, a keyword, or a tensor
         select-arg (expand-select-arg select-arg)
-        dim-type (cond (map? dim) :classified-sequence
-                       (tensor? dim) :tensor)
-        select-type (cond (map? select-arg) :classified-sequence
-                          (tensor? select-arg) :tensor
+        dim-type (cond (tensor? dim) :tensor
+                       (shape/classified-sequence? dim)  :classified-sequence)
+        select-type (cond (tensor? select-arg) :tensor
+                          (shape/classified-sequence? select-arg) :classified-sequence
                           (keyword? select-arg) :keyword)]
     (cond
       (= :tensor select-type)
       (do
-        (when-not (and (= :classified-sequence dim-type)
-                       (= :+ (:type dim))
-                       (= 0 (long (:min-item dim))))
-          (throw (ex-info "Can only use tensor indexers on monotonically incrementing dimensions"
-                          {:dim dim
-                           :select-arg select-arg}))
-          select-arg))
+        (when-not-error (and (= :classified-sequence dim-type)
+                             (= :+ (:type dim))
+                             (= 0 (long (:min-item dim))))
+          "Can only use tensor indexers on monotonically incrementing dimensions"
+          {:dim dim
+           :select-arg select-arg})
+        select-arg)
       (= :all select-arg)
       dim
       (= :lla select-arg)
@@ -91,7 +92,10 @@ the selection applied."
        (assert (and (= dim-type :classified-sequence)
                     (= select-type :classified-sequence))
                "Internal logic failure")
-       (shape/combine-classified-sequences dim select-arg)))))
+       ;;Carry the scalar attribute but replace anything else.
+       (merge (select-keys select-arg [:scalar?])
+              (shape/combine-classified-sequences
+               dim select-arg))))))
 
 
 (defn dimensions->simpified-dimensions
@@ -102,27 +106,31 @@ Returns:
 {:dimension-seq dimension-seq
 :offset offset}"
   [dimension-seq stride-seq]
-  (let [[dimension-seq offset]
-        (reduce (fn [[dimension-seq offset] [dimension stride]]
+  (let [[dimension-seq strides offset]
+        (reduce (fn [[dimension-seq strides offset] [dimension stride]]
                   (cond
-                    (map? dimension)
+                    (tensor? dimension)
+                    [(conj dimension-seq dimension) (conj strides stride) offset]
+                    (shape/classified-sequence? dimension)
                     ;;Shift the sequence down and record the new offset.
-                    (let [{:keys [type min-item max-item sequence]} dimension
+                    (let [{:keys [type min-item max-item sequence
+                                  scalar?]} dimension
                           max-item (- (long max-item) (long min-item))
                           new-offset (+ (long offset)
                                         (* (long stride)
                                            (long (:min-item dimension))))
                           min-item 0
                           dimension (cond-> (assoc dimension
-                                                   :min-item 0
+                                                   :min-item min-item
                                                    :max-item max-item)
                                       sequence
                                       (assoc :sequence (mapv (fn [idx]
-                                                               (- (long idx) (long min-item)))
+                                                               (- (long idx)
+                                                                  (long min-item)))
                                                              sequence)))
                           ;;Now simplify the dimension if possible
                           dimension (cond
-                                      (= (long min-item) (long max-item))
+                                      (= min-item max-item)
                                       1
                                       (= :+ type)
                                       (+ 1 max-item)
@@ -130,10 +138,18 @@ Returns:
                                       (:sequence dimension)
                                       :else
                                       dimension)]
-                      [(conj dimension-seq dimension) new-offset])
-                    (tensor? dimension)
-                    [(conj dimension-seq dimension) offset]))
-                [[] 0]
+                      ;;A scalar single select arg means drop the dimension.
+                      (if-not (and (= 1 dimension) scalar?)
+                        [(conj dimension-seq dimension)
+                         (conj strides stride) new-offset]
+                        ;;We keep track of offsetting but we don't add the
+                        ;;element to the return value.
+                        [dimension-seq strides new-offset]))
+                    :else
+                    (throw (ex-info "Bad dimension type"
+                                    {:dimension dimension}))))
+                [[] [] 0]
                 (map vector dimension-seq stride-seq))]
     {:dimension-seq dimension-seq
+     :strides strides
      :offset offset}))

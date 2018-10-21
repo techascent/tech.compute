@@ -9,22 +9,26 @@
             [clojure.core.matrix.stats :as stats]
             [tech.resource :as resource]
             [tech.compute.verify.utils :as verify-utils]
-            [tech.datatype.java-unsigned :as unsigned]))
+            [tech.datatype.java-unsigned :as unsigned]
+            [tech.compute.tensor.defaults :as defaults]))
 
 
 (defmacro tensor-context
   [stream datatype & body]
   `(resource/with-resource-context
-     (with-bindings {#'ct/*stream* ~stream
-                     #'ct/*datatype* ~datatype}
+     (defaults/tensor-context
+      ~stream
+      ~datatype
        ~@body)))
+
 
 (defmacro tensor-default-context
   [driver datatype & body]
-  `(tensor-context (-> (compute/default-device ~driver)
-                       compute/default-stream)
-                   ~datatype
-                   ~@body))
+  `(resource/with-resource-context
+     (defaults/tensor-driver-context
+      ~driver
+      ~datatype
+      ~@body)))
 
 
 (defn assign-constant!

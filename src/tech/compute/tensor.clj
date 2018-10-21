@@ -96,7 +96,8 @@ In general we want as much error checking and analysis done in this file as oppo
 
   mp/PAssignment
   (assign! [dest src]
-    (details/typed-assign! dest src {}))
+    (details/typed-assign! dest src {})
+    dest)
 
   tens-proto/PIsTensor
   (tensor? [item] true)
@@ -346,8 +347,15 @@ to add complexity there.  There must be an entry for every dimension of the tens
 see:
 https://cloojure.github.io/doc/core.matrix/clojure.core.matrix.html#var-select"
   [tensor & args]
-  (details/apply-select-result
-   tensor (apply dims/select (tensor->dimensions tensor) args)))
+  (let [select-result (apply dims/select (tensor->dimensions tensor) args)
+        {:keys [dimensions elem-offset]} select-result
+        tens-buffer (tens-proto/tensor->buffer tensor)
+        new-buffer (compute/sub-buffer tens-buffer elem-offset
+                                       (- (dtype/ecount tens-buffer)
+                                          (long elem-offset)))]
+    (assoc tensor
+           :buffer new-buffer
+           :dimensions dimensions)))
 
 
 (defn subvector
@@ -391,6 +399,10 @@ and the rest of the dimensions being squashed into n-rows."
          (range n-cols))))
 
 
+(def unary-operations
+  #{:floor :ceil :round :- :tanh :logistic :exp :sqrt :noop})
+
+
 (defn unary-op!
   "dest[idx] = op(alpha * x)"
   ^Tensor [dest alpha x op & [options]]
@@ -398,7 +410,7 @@ and the rest of the dimensions being squashed into n-rows."
 
 
 (def binary-operations
-  [:+ :- :* :/ :max :min :bit-and :bit-xor :eq :> :>= :< :<=])
+  #{:+ :- :* :/ :max :min :bit-and :bit-xor :eq :> :>= :< :<=})
 
 
 (defn binary-op!
@@ -408,6 +420,10 @@ x or y may be a scalar, dest must not be.
 Datatypes must match."
   ^Tensor [dest alpha x beta y op & [options]]
   (details/binary-op! dest alpha x beta y op options))
+
+
+(def ternary-operations
+  #{:select})
 
 
 (defn ternary-op!
@@ -425,7 +441,7 @@ Datatypes must match."
 
 
 (def unary-reduction-operations
-  [:max :min :sum :mean :magnitude-squared :magnitude])
+  #{:max :min :sum :mean :magnitude-squared :magnitude})
 
 
 (defn unary-reduce!
@@ -450,6 +466,10 @@ The leading dimensions of both vectors must match."
   "C = alpha * (trans-a? A) * (trans-b? B) + beta * C."
   ^Tensor [C trans-a? trans-b? alpha A B beta]
   (error-checking/external-library-check! "gemm!" C A B)
+  (error-checking/ensure-matrix C)
+  (error-checking/ensure-matrix A)
+  (error-checking/ensure-matrix B)
+
   (let [[a-row-count a-col-count :as a-shape] (trans-2d-shape trans-a? A)
         [b-row-count b-col-count :as b-shape] (trans-2d-shape trans-b? B)
         [c-row-count c-col-count :as c-shape] (tensor->2d-shape C)
@@ -480,23 +500,18 @@ The leading dimensions of both vectors must match."
   C)
 
 
-(defn- blas-vector-increment
-  ^long [^Tensor tensor]
-  (if (dense? tensor)
-    1
-    (or (-> (get-in tensor [:dimensions :strides])
-            last)
-        1)))
-
-
 (defn gemv!
   "c = alpha * (trans-a? A) * x + beta * c"
   ^Tensor [c trans-a? alpha A x beta]
   (error-checking/external-library-check! "gemv!" c A x)
-  (error-checking/ensure-vector-indexable x c)
+  (error-checking/ensure-matrix A)
+  (error-checking/ensure-vector x)
+  (when-not-error (= 1 (count (dtype/shape x)))
+    "x appears to not be a vector"
+    {:x-shape (dtype/shape x)})
   (let [[a-row-count a-col-count] (tensor->2d-shape A)
-        inc-x (blas-vector-increment x)
-        inc-c (blas-vector-increment c)
+        inc-x (details/blas-vector-increment x)
+        inc-c (details/blas-vector-increment c)
         a-colstride (tensor->column-stride A)]
     (tm/gemv! (defaults/infer-stream c)
               (tensor->buffer c) inc-c

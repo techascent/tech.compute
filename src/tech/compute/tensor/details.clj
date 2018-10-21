@@ -25,18 +25,6 @@
     (number? item) :number))
 
 
-(defn apply-select-result
-  [tensor select-result]
-  (let [{:keys [dimensions elem-offset]} select-result
-        tens-buffer (tens-proto/tensor->buffer tensor)
-        new-buffer (compute/sub-buffer tens-buffer elem-offset
-                                       (- (dtype/ecount tens-buffer)
-                                          (long elem-offset)))]
-    (assoc tensor
-           :buffer new-buffer
-           :dimensions dimensions)))
-
-
 (defmulti typed-assign!
   "Multimethods for typed assignment."
   (fn
@@ -172,7 +160,8 @@
       (unary-op! dest (* (double alpha)
                          (double y))
                  x
-                 :noop)
+                 :noop
+                 options)
       (if (compute/alias? (tens-proto/tensor->buffer dest)
                           (tens-proto/tensor->buffer x))
         (tm/binary-accum-constant! (defaults/infer-stream options dest) dest alpha y op
@@ -337,3 +326,13 @@ The leading dimensions of both vectors must match."
     (error-checking/ensure-datatypes (dtype/get-datatype output) input)
     (tm/unary-reduce! (defaults/infer-stream options output) output alpha input op)
     output))
+
+
+(defn blas-vector-increment
+  ^long [tensor]
+  (if-let [retval (-> (tens-proto/tensor->dimensions tensor)
+                      :strides
+                      last)]
+    retval
+    (throw (ex-info "Failed operation"
+                    {:dims (tens-proto/tensor->dimensions tensor)}))))

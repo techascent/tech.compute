@@ -171,7 +171,7 @@
                                     (cond
                                       (number? next-dim-entry)
                                       shape-idx
-                                      (shape/is-classified-sequence?
+                                      (shape/classified-sequence?
                                        next-dim-entry)
                                       (shape/classified-sequence->elem-idx
                                        next-dim-entry
@@ -457,13 +457,9 @@ https://cloojure.github.io/doc/core.matrix/clojure.core.matrix.html#var-select"
     (let [{:keys [shape strides]} dimensions
           shape (map dims-select/apply-select-arg-to-dimension shape args)
           {shape :dimension-seq
-           offset :offset} (dims-select/dimensions->simpified-dimensions shape strides)
-          [shape strides] (reduce (fn [[shape strides] [dim stride]]
-                                    (if-not (= 1 dim)
-                                      [(conj shape dim) (conj strides stride)]
-                                      [shape strides]))
-                                  [[] []]
-                                  (map vector shape strides))]
+           strides :strides
+           offset :offset} (dims-select/dimensions->simpified-dimensions
+                            shape strides)]
       {:dimensions {:shape shape
                     :strides strides}
        :elem-offset offset})))

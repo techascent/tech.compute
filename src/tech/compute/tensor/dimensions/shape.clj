@@ -19,38 +19,47 @@
 (defn classify-sequence
   [item-seq]
   ;;Normalize this to account for single digit numbers
-  (let [item-seq (if (number? item-seq)
-                   [item-seq]
-                   item-seq)]
-    (when-not (seq item-seq)
-      (throw (ex-info "Nil sequence in check monotonic" {})))
-    (let [n-elems (count item-seq)
-          first-item (long (first item-seq))
-          last-item (long (last item-seq))
-          min-item (min first-item last-item)
-          max-item (max first-item last-item)
-          retval {:min-item min-item
-                  :max-item max-item}]
-      (if (= n-elems 1)
-        (assoc retval :type :+)
-        (let [mon-op (->> monotonic-operators
-                          (map (fn [[op-name op]]
-                                 (when (apply op item-seq)
-                                   op-name)))
-                          (remove nil?)
-                          first)]
-          (if (and (= n-elems
-                      (+ 1
-                         (- max-item
-                            min-item)))
-                   mon-op)
-            (assoc retval :type mon-op)
-            (assoc retval :sequence (vec item-seq))))))))
+  (if (number? item-seq)
+    {:type :+
+     :min-item item-seq
+     :max-item item-seq
+     :scalar? true}
+    (do
+      (when-not (seq item-seq)
+        (throw (ex-info "Nil sequence in check monotonic" {})))
+      (let [n-elems (count item-seq)
+            first-item (long (first item-seq))
+            last-item (long (last item-seq))
+            min-item (min first-item last-item)
+            max-item (max first-item last-item)
+            retval {:min-item min-item
+                    :max-item max-item}]
+        (if (= n-elems 1)
+          (assoc retval :type :+)
+          (let [mon-op (->> monotonic-operators
+                            (map (fn [[op-name op]]
+                                   (when (apply op item-seq)
+                                     op-name)))
+                            (remove nil?)
+                            first)]
+            (if (and (= n-elems
+                        (+ 1
+                           (- max-item
+                              min-item)))
+                     mon-op)
+              (assoc retval :type mon-op)
+              (assoc retval :sequence (vec item-seq)))))))))
 
 
-(defn is-classified-sequence?
+(def classified-sequence-keys #{:type :min-item :max-item :sequence})
+
+
+(defn classified-sequence?
   [item]
-  (map? item))
+  (and (map? item)
+       (= 3 (->> (keys item)
+                 (filter classified-sequence-keys)
+                 count))))
 
 
 (defn classified-sequence->count
@@ -120,7 +129,7 @@
   (cond
     (number? shape-entry)
     (long shape-entry)
-    (is-classified-sequence? shape-entry)
+    (classified-sequence? shape-entry)
     (classified-sequence->count shape-entry)
     :else
     (long (dtype/ecount shape-entry))))
