@@ -1,4 +1,4 @@
-(ns tech.compute.tensor.dimensions.utils)
+(ns tech.compute.tensor.utils)
 
 
 (defmacro when-not-error
@@ -33,3 +33,13 @@
             (recur (inc idx)))
           (persistent! retval))))
     (vec (reverse item-seq))))
+
+
+(defn all-combinations
+  [item-seq]
+  (let [item (first item-seq)
+        rest-items (rest item-seq)]
+    (if (seq rest-items)
+      (concat (map vector (repeat item) rest-items)
+              (lazy-seq (all-combinations rest-items)))
+      nil)))

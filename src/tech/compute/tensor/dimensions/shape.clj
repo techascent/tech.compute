@@ -2,7 +2,7 @@
   "A shape vector entry can be a number of things.  We want to be precise
   with handling them and abstract that handling so new things have a clear
   path."
-  (:require [tech.compute.tensor.dimensions.utils
+  (:require [tech.compute.tensor.utils
              :refer [when-not-error reversev map-reversev]]
             [tech.datatype.core :as dtype]))
 

@@ -11,7 +11,7 @@
             [tech.datatype.core :as dtype]
             [tech.compute.tensor.dimensions.select :as dims-select]
             [tech.compute.tensor.dimensions.shape :as shape]
-            [tech.compute.tensor.dimensions.utils
+            [tech.compute.tensor.utils
              :refer [when-not-error reversev map-reversev]]))
 
 
@@ -467,3 +467,12 @@ https://cloojure.github.io/doc/core.matrix/clojure.core.matrix.html#var-select"
       {:dimensions {:shape shape
                     :strides strides}
        :elem-offset offset})))
+
+
+(defn dimensions->column-stride
+  ^long [{:keys [shape strides]}]
+  (long
+   (let [dim-count (count strides)]
+     (if (> dim-count 1)
+       (get strides (- dim-count 2))
+       (get shape 0 1)))))
