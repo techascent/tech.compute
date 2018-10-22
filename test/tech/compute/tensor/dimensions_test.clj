@@ -4,7 +4,7 @@
 
 
 
-(deftest dimensions-in-place-reshape-test
+(deftest in-place-reshape-test
   (is (= {:shape [6 2]
           :strides [2 1]}
          (ct-dims/in-place-reshape

@@ -10,6 +10,8 @@
             [tech.resource :as resource]
             [tech.compute.tensor :as ct]
             [tech.compute.tensor.dimensions :as ct-dims]
+            [tech.compute.tensor.utils :as ct-utils]
+            [tech.compute.tensor.defaults :as ct-defaults]
             [clojure.core.matrix.stats :as stats]
             [clojure.core.matrix :as m]
             [tech.compute.cpu.driver :as cpu-driver])
@@ -96,7 +98,8 @@
            increasing?)
       (let [ec (ct-dims/ecount dims)
             ec-idx (long
-                    (->> (map-indexed vector (ct-dims/left-pad-ones (ct-dims/shape dims) max-shape))
+                    (->> (map-indexed vector (ct-dims/left-pad-ones
+                                              (ct-dims/shape dims) max-shape))
                          (filter #(= ec (second %)))
                          (ffirst)))
             broadcast-amt (long (apply * 1 (drop (+ 1 ec-idx) max-shape)))]
@@ -114,21 +117,13 @@
           (->ElemIdxToAddr (int-array reverse-shape) (int-array reverse-strides)
                            (int-array (vec (reverse max-shape))))
           (do
-            #_(clojure.pprint/pprint {:reverse-shape reverse-shape
-                                      :reverse-strides reverse-strides
-                                      :reverse-max-shape (ct-dims/reversev max-shape)})
             (->GeneralElemIdxToAddr (mapv (fn [item]
-                                            (cond
-                                              (number? item)
-                                              item
+                                            (cond-> item
                                               (ct/tensor? item)
-                                              (ct/tensor->buffer
-                                               (ensure-simple-tensor item))
-                                              (sequential? item)
-                                              (vec item)))
+                                              ct/tensor->buffer))
                                           reverse-shape)
                                     reverse-strides
-                                    (ct-dims/reversev max-shape))))))))
+                                    (ct-utils/reversev max-shape))))))))
 
 
 (defmacro item->typed-nio-buffer
@@ -222,6 +217,7 @@
 
 (def ^:private assign!-map
   (generate-all-marshalling-assign-fns))
+
 
 
 (defmacro ^:private perform-unary-op-impl
@@ -1051,14 +1047,13 @@
 
 (defn as-tensor
   [java-array]
-  (ct/construct-tensor (drv/get-device ct/*stream*)
-                       (ct-dims/dimensions [(ct/ecount java-array)])
+  (ct/construct-tensor (ct-dims/dimensions [(ct/ecount java-array)])
                        (unsigned/->typed-buffer java-array)))
 
 
 (defn as-java-array
   [cpu-tensor]
-  (drv/sync-with-host ct/*stream*)
+  (drv/sync-with-host (ct-defaults/infer-stream {} cpu-tensor))
   (let [dev-buffer (ct/tensor->buffer cpu-tensor)]
     (dtype/->array dev-buffer)))
 

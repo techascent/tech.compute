@@ -8,74 +8,17 @@
   number.  This means that that dimension should be indexed indirectly.  If a shape has
   any index buffers then it is considered an indirect shape."
   (:require [clojure.core.matrix :as m]
-            [tech.datatype.core :as dtype]))
-
-
-(defmacro when-not-error
-  [expr error-msg extra-data]
-  `(when-not ~expr
-     (throw (ex-info ~error-msg ~extra-data))))
-
-
-(defn reversev
-  [item-seq]
-  (if (vector? item-seq)
-    (let [len (count item-seq)
-          retval (transient [])]
-      (loop [idx 0]
-        (if (< idx len)
-          (do
-            (conj! retval (item-seq (- len idx 1)))
-            (recur (inc idx)))
-          (persistent! retval))))
-    (vec (reverse item-seq))))
-
-
-(defn map-reversev
-  [map-fn item-seq]
-  (if (vector? item-seq)
-    (let [len (count item-seq)
-          retval (transient [])]
-      (loop [idx 0]
-        (if (< idx len)
-          (do
-            (conj! retval (map-fn (item-seq (- len idx 1))))
-            (recur (inc idx)))
-          (persistent! retval))))
-    (vec (reverse item-seq))))
-
-
-(defn- disambiguate-shape-entry
-  "Disambiguate a shape entry from a union of long or tensor to just a long."
-  ^long [shape-entry]
-  (if (number? shape-entry)
-    (long shape-entry)
-    (long (m/ecount shape-entry))))
-
-
-(defn disambiguate-shape
-  [shape-vec]
-  (mapv disambiguate-shape-entry shape-vec))
-
-
-(defn direct-shape?
-  [shape]
-  (every? number? shape))
-
-(defn indirect-shape?
-  [shape]
-  (not (direct-shape? shape)))
-
-
-(defn reverse-shape
-  [shape-vec]
-  (map-reversev disambiguate-shape-entry shape-vec))
+            [tech.datatype.core :as dtype]
+            [tech.compute.tensor.dimensions.select :as dims-select]
+            [tech.compute.tensor.dimensions.shape :as shape]
+            [tech.compute.tensor.utils
+             :refer [when-not-error reversev map-reversev]]))
 
 
 (defn extend-strides
   [shape strides]
   (let [rev-strides (reversev strides)
-        rev-shape (reverse-shape shape)]
+        rev-shape (shape/reverse-shape shape)]
    (->> (reduce (fn [new-strides dim-idx]
                   (let [dim-idx (long dim-idx)
                         cur-stride (get rev-strides dim-idx)]
@@ -94,17 +37,17 @@
 
 (defn dimensions
   "A dimension is a map with at least a shape (vector of integers or index buffers) and
-  potentially another vector of dimension names.  By convention the first member of the shape is
-  the slowest changing and the last member of the shape is the most rapidly changing.  There can
-  also be optionally a companion vector of names which name each dimension.  Names are used when
-  doing things that are dimension aware such as a 2d convolution.  Shape is the same as a
-  core-matrix shape."
+  potentially another vector of dimension names.  By convention the first member of the
+  shape is the slowest changing and the last member of the shape is the most rapidly
+  changing.  There can also be optionally a companion vector of names which name each
+  dimension.  Names are used when doing things that are dimension aware such as a 2d
+  convolution.  Shape is the same as a core-matrix shape."
   [shape & {:keys [names strides]}]
   (let [strides (extend-strides shape strides)
         sorted-shape-stride (->> (map vector shape strides)
                                  (sort-by second >))
         max-stride (apply max 0 (map second sorted-shape-stride))
-        elem-count (apply * 1 (drop 1 (map (comp disambiguate-shape-entry first)
+        elem-count (apply * 1 (drop 1 (map (comp shape/shape-entry->count first)
                                            sorted-shape-stride)))]
     (when-not-error (<= (long elem-count)
                         (long max-stride))
@@ -118,56 +61,29 @@
      :names names}))
 
 
-(defn map->dimensions
-  [{:keys [batch-size channels height width]
-    :or {batch-size 1
-         channels 1
-         height 1
-         width 1}}]
-  (dimensions [batch-size channels height width]
-              :names [:batch-size :channels :height :width]))
-
-
 (defn ecount
   "Return the element count indicated by the dimension map"
   ^long [{:keys [shape]}]
-  (long (apply * (disambiguate-shape shape))))
-
-
-(defn- ensure-direct-shape
-  [shape-seq]
-  (when-not (direct-shape? shape-seq)
-    (throw (ex-info "Index buffers not supported for this operation." {})))
-  shape-seq)
+  (long (apply * (shape/shape->count-vec shape))))
 
 
 (defn ->2d-shape
   "Given dimensions, return new dimensions with the lowest (fastest-changing) dimension
   unchanged and the rest of the dimensions multiplied into the higher dimension."
   [{:keys [shape]}]
-  (when-not-error (seq shape)
-    "Invalid shape in dimension map"
-    {:shape shape})
-  (if (= 1 (count shape))
-    [1 (first shape)]
-    [(apply * (ensure-direct-shape (drop-last shape))) (last shape)]))
+  (shape/->2d shape))
 
 
 (defn ->batch-shape
   "Given dimensions, return new dimensions with the lowest (fastest-changing) dimension
   unchanged and the rest of the dimensions multiplied into the higher dimension."
   [{:keys [shape]}]
-  (when-not-error (seq shape)
-    "Invalid shape in dimension map"
-    {:shape shape})
-  (if (= 1 (count shape))
-    [1 (first shape)]
-    [(first shape) (apply * (ensure-direct-shape (drop 1 shape)))]))
+  (shape/->2d shape))
 
 
 (defn shape
   [{:keys [shape]}]
-  (disambiguate-shape shape))
+  (shape/shape->count-vec shape))
 
 
 (defn strides
@@ -177,15 +93,19 @@
 
 (defn dense?
   [{:keys [shape strides]}]
-  (and (direct-shape? shape)
+  (and (shape/direct-shape? shape)
        (if (= 1 (count shape))
          (= 1 (long (first strides)))
          (let [[shape strides] (->> (map vector shape strides)
+                                    ;;remove trivial shape/stride combinations
                                     (remove #(= 1 (first %)))
+                                    ;;sort into known orientation
                                     (sort-by second >)
+                                    ;;replace back to original
                                     ((fn [shp-strd]
                                        [(mapv first shp-strd)
                                         (mapv second shp-strd)])))
+               ;;Given there was a remove we could have nothing left.
                max-stride (first strides)
                shape-num (apply * 1 (drop 1 shape))]
            (= max-stride shape-num)))))
@@ -193,7 +113,7 @@
 
 (defn direct?
   [{:keys [shape]}]
-  (direct-shape? shape))
+  (shape/direct-shape? shape))
 
 
 (defn indirect?
@@ -202,29 +122,33 @@
 
 
 (defn access-increasing?
-  "Are these dimensions setup such a naive seq through the data will be accessing memory in
-  order.  This is necessary for external library interfaces (blas, cudnn).  An example would be
-  after almost any transpose that is not made concrete (copied) this condition will probably not
-  hold."
+  "Are these dimensions setup such a naive seq through the data will be accessing memory
+  in order.  This is necessary for external library interfaces (blas, cudnn).  An
+  example would be after any nontrivial transpose that is not made concrete (copied)
+  this condition will not hold."
   [{:keys [shape strides] :as dims}]
-  (and (direct-shape? shape)
+  (and (shape/direct-shape? shape)
        (apply >= strides)))
 
 
 (defn ->most-rapidly-changing-dimension
   "Get the size of the most rapidly changing dimension"
   ^long [{:keys [shape]}]
-  (disambiguate-shape-entry (last shape)))
+  (shape/shape-entry->count (last shape)))
 
 
 (defn ->least-rapidly-changing-dimension
   "Get the size of the least rapidly changing dimension"
   ^long [{:keys [shape]}]
-  (disambiguate-shape-entry (first shape)))
+  (shape/shape-entry->count (first shape)))
 
 
 (defn elem-idx->addr
-  "Precondition:  rev-shape, rev-max-shape, strides are same length.
+  "Given an arbitary logical element index, return the address of the element as
+  calculated by waking through the shape from most rapidly changing to least rapidly
+  changing and summing the shape index by the stride.
+
+  Precondition:  rev-shape, rev-max-shape, strides are same length.
   rev-max-shape: maxes of all shapes passed in, reversed
   rev-shape: reverse shape.
   rev-strides: reverse strides.
@@ -238,14 +162,21 @@
               (let [next-max (long (rev-max-shape idx))
                     next-stride (long (rev-strides idx))
                     next-dim-entry (rev-shape idx)
-                    next-dim (disambiguate-shape-entry next-dim-entry)
+                    next-dim (shape/shape-entry->count next-dim-entry)
                     max-idx (rem arg next-max)
                     shape-idx (rem arg next-dim)]
                 (recur (inc idx)
                        (quot arg next-max)
                        (+ offset (* next-stride
-                                    (if (number? next-dim-entry)
+                                    (cond
+                                      (number? next-dim-entry)
                                       shape-idx
+                                      (shape/classified-sequence?
+                                       next-dim-entry)
+                                      (shape/classified-sequence->elem-idx
+                                       next-dim-entry
+                                       shape-idx)
+                                      :else
                                       (long (dtype/get-value
                                              next-dim-entry
                                              shape-idx)))))))
@@ -278,8 +209,10 @@
 
 
 (defn- max-extend-strides
+  "Extend strides to match the shape vector length by assuming data
+  is packed."
   [shape strides max-count]
-  (let [shape (disambiguate-shape shape)
+  (let [shape (shape/shape->count-vec shape)
         num-items (count shape)
         max-stride-idx (long
                         (loop [idx 1
@@ -349,7 +282,7 @@ to be reversed for the most efficient implementation."
                     shapes)]
     {:max-shape (vec (apply map (fn [& args]
                                   (apply max 0 args))
-                            (map disambiguate-shape shapes)))
+                            (map shape/shape->count-vec shapes)))
      :dimensions (mapv #(hash-map :shape %1 :strides %2) shapes strides)}))
 
 
@@ -358,10 +291,12 @@ to be reversed for the most efficient implementation."
 a. If the dimension is 1, strip it and associated stride.
 b. Combine densely-packed dimensions (not as simple)."
   [dimensions]
-  (let [stripped (->> (mapv vector (:shape dimensions) (:strides dimensions))
+  (let [stripped (->> (mapv vector
+                            (-> (:shape dimensions)
+                                shape/shape->count-vec)
+                            (:strides dimensions))
                       (remove (fn [[shp str]]
-                                (and (number? shp)
-                                     (= 1 (long shp))))))]
+                                (= 1 (long shp)))))]
     (if (= 0 (count stripped))
       {:shape [1] :strides [1]}
       (let [reverse-stripped (reverse stripped)
@@ -369,9 +304,8 @@ b. Combine densely-packed dimensions (not as simple)."
                               (fn [reverse-stripped [[cur-shp cur-stride]
                                                      [last-shp last-stride]]]
                                 ;;If the dimension is direct and the stride lines up.
-                                (if (and (number? last-shp)
-                                         (= (long cur-stride)
-                                            (* (long last-shp) (long last-stride))))
+                                (if (= (long cur-stride)
+                                       (* (long last-shp) (long last-stride)))
                                   (let [[str-shp str-str] (last reverse-stripped)]
                                     (vec (concat (drop-last reverse-stripped)
                                                  [[(* (long str-shp) (long cur-shp))
@@ -395,11 +329,17 @@ b. Combine densely-packed dimensions (not as simple)."
       "Reshaped dimensions are larger than tensor"
       {:tensor-ecount (ecount existing-dims)
        :reshape-ecount (ecount new-dims)})
+    (when-not-error (direct? dimensions)
+      "Dimensions must be direct for in-place-reshape."
+      {:dimensions existing-dims})
     (cond
+      ;; a dense brick is easiest case, regardless of
+      ;; dimensionality.
       (and (access-increasing? existing-dims)
            (dense? existing-dims))
       {:shape shape
        :strides (extend-strides shape [])}
+      ;;Padding creates islands of dense behavior.  We cannot reshape across islands.
       (access-increasing? existing-dims)
       (let [existing-dims (minimize existing-dims)
             existing-rev-shape (reversev (get existing-dims :shape))
@@ -413,61 +353,62 @@ b. Combine densely-packed dimensions (not as simple)."
             old-shape-count (count existing-info)
             max-old-idx (- old-shape-count 1)
             reverse-shape (reversev shape)
-            rev-new-strides (loop [new-idx 0
-                                   old-idx 0
-                                   new-shape reverse-shape
-                                   existing-info existing-info
-                                   rev-new-strides []]
-                              (if (< new-idx new-shape-count)
-                                (let [[old-dim old-stride old-packed?] (get existing-info
-                                                                            (min old-idx
-                                                                                 max-old-idx))
-                                      new-dim (long (get new-shape new-idx))
-                                      old-dim (long old-dim)
-                                      old-stride (long old-stride)]
-                                  (when-not-error (or (< old-idx old-shape-count)
-                                                      (= 1 new-dim))
-                                    "Ran out of old shape dimensions"
-                                    {:old-idx old-idx
-                                     :existing-info existing-info
-                                     :rev-new-strides rev-new-strides
-                                     :new-dim new-dim})
-                                  (cond
-                                    (= 1 new-dim)
-                                    (do
-                                      (recur (inc new-idx)
-                                             old-idx
-                                             new-shape
-                                             existing-info
-                                             (conj rev-new-strides
-                                                   (* (long (or (last rev-new-strides) 1))
-                                                      (long (or (get reverse-shape (dec new-idx))
-                                                                1))))))
-                                    (= old-dim new-dim)
-                                    (do
-                                      (recur (inc new-idx) (inc old-idx) new-shape existing-info
-                                             (conj rev-new-strides old-stride)))
-                                    (< old-dim new-dim)
-                                    ;;Due to minimization, this is always an error
-                                    (throw (ex-info "Cannot combine dimensions across padded boundaries"
-                                                    {:old-dim old-dim
-                                                     :new-dim new-dim}))
-                                    (> old-dim new-dim)
-                                    (do
-                                      (when-not-error (= 0 (rem old-dim new-dim))
-                                        "New dimension not commensurate with old dimension"
-                                        {:old-dim old-dim
-                                         :new-dim new-dim})
-                                      (recur (inc new-idx) old-idx
-                                             new-shape
-                                             (assoc existing-info old-idx [(quot old-dim new-dim)
-                                                                           (* old-stride new-dim)])
-                                             (conj rev-new-strides old-stride)))))
-                                rev-new-strides))]
+            ;;Index through new shape fitting new shape into old shape.  Each
+            ;;time it fits you get a new stride based on the existing shape's
+            ;;stride and your previous stride.
+            rev-new-strides
+            (loop [new-idx 0
+                   old-idx 0
+                   new-shape reverse-shape
+                   existing-info existing-info
+                   rev-new-strides []]
+              (if (< new-idx new-shape-count)
+                (let [[old-dim old-stride old-packed?] (get existing-info
+                                                            (min old-idx
+                                                                 max-old-idx))
+                      new-dim (long (get new-shape new-idx))
+                      old-dim (long old-dim)
+                      old-stride (long old-stride)]
+                  (when-not-error (or (< old-idx old-shape-count)
+                                      (= 1 new-dim))
+                    "Ran out of old shape dimensions"
+                    {:old-idx old-idx
+                     :existing-info existing-info
+                     :rev-new-strides rev-new-strides
+                     :new-dim new-dim})
+                  (cond
+                    (= 1 new-dim)
+                    (recur (inc new-idx) old-idx
+                           new-shape existing-info
+                           (conj rev-new-strides
+                                 (* (long (or (last rev-new-strides) 1))
+                                    (long (or (get reverse-shape (dec new-idx))
+                                              1)))))
+                    (= old-dim new-dim)
+                    (recur (inc new-idx) (inc old-idx)
+                           new-shape existing-info
+                           (conj rev-new-strides old-stride))
+                    (< old-dim new-dim)
+                    ;;Due to minimization, this is always an error
+                    (throw (ex-info "Cannot combine dimensions across padded boundaries"
+                                    {:old-dim old-dim
+                                     :new-dim new-dim}))
+                    (> old-dim new-dim)
+                    (do
+                      (when-not-error (= 0 (rem old-dim new-dim))
+                        "New dimension not commensurate with old dimension"
+                        {:old-dim old-dim
+                         :new-dim new-dim})
+                      (recur (inc new-idx) old-idx
+                             new-shape (assoc existing-info
+                                              old-idx [(quot old-dim new-dim)
+                                                       (* old-stride new-dim)])
+                             (conj rev-new-strides old-stride)))))
+                rev-new-strides))]
         {:shape shape
          :strides (extend-strides shape (reversev rev-new-strides))})
       :else
-      (throw (ex-info "Cannot (at this point) in-place-reshape transposed or indirect dimensions"
+      (throw (ex-info "Cannot in-place-reshape transposed or indirect dimensions"
                       {})))))
 
 
@@ -491,80 +432,23 @@ b. Combine densely-packed dimensions (not as simple)."
      :strides strides}))
 
 
-(def monotonic-operators
-  {:monotonically-increasing <
-   :monotonically-decreasing >})
 
+(defn select
+  "Expanded implementation of the core.matrix select function call.  Each dimension must
+  have an entry and each entry may be:
+:all (identity)
+:lla (reverse)
+persistent-vector: [0 1 2 3 4 4 5] (not supported by all backends)
+map: {:type [:+ :-]
+      :min-item 0
+      :max-item 50}
+  Monotonically increasing/decreasing bounded (inclusive) sequences
 
-(defn- check-monotonic
-  [item-seq]
-  (when-not (seq item-seq)
-    (throw (ex-info "Nil sequence in check monotonic" {})))
-  (let [n-elems (count item-seq)
-        first-item (first item-seq)
-        last-item (last item-seq)
-        min-item (min first-item last-item)
-        max-item (max first-item last-item)
-        retval {:min-item min-item
-                :max-item max-item}]
-    (if (= n-elems 1)
-      (assoc retval :type :monotonically-increasing)
-      (let [mon-op (->> monotonic-operators
-                        (map (fn [[op-name op]]
-                               (when (apply op item-seq)
-                                 op-name)))
-                        (remove nil?)
-                        first)]
-        (if (and (= n-elems
-                    (+ 1
-                       (- max-item
-                          min-item)))
-                 mon-op)
-          (assoc retval :type mon-op)
-          retval)))))
+tensor : int32, dense vector only.  Not supported by all backends.
 
-
-(defn process-select-args
-  "Default processing of select arguments.  This allows
-:all - all indexes in the dimension
-[2 3 4] or (range 5) - monotonically increasing subset of the dimension
-  that starts at an arbitrary index.
-tensor - dynamically defined arbitrary subset of the dimension."
-  [shape args]
-  (map (fn [dim arg]
-         (cond
-           (= arg :all)
-           {:type :monotonically-increasing
-            :min-item 0
-            :max-item dim}
-           (sequential? arg)
-           (if-let [op-parts (check-monotonic arg)]
-             (let [{:keys [max-item type]} op-parts]
-               (when (>= max-item dim)
-                 (throw (ex-info "Argument out of range"
-                                 (assoc op-parts :dimension dim))))
-               (if type
-                 op-parts
-                 arg)))
-           (number? arg) arg
-           ;;Is this something shape-able
-           (vector? (dtype/shape arg))
-           (let [arg-shape (dtype/shape arg)]
-             (when-not (= 1 (count arg-shape))
-               (throw (ex-info "Index arguments must be vectors"
-                               {:arg-shape arg-shape})))
-             arg)
-           :else
-           (throw (ex-info "argument to select of incorrect type"
-                           {:arg arg}))))
-       shape args))
-
-
-(defn select-detail
-  "Breaking out the processing of select arguments from the reaction to that processing.
-This is to allow the select arguments to have different valid conditions; for instance
-select when doing dynamic compilation has different terms than when not."
-  [dimensions args]
+;;Some examples
+https://cloojure.github.io/doc/core.matrix/clojure.core.matrix.html#var-select"
+  [dimensions & args]
   (let [data-shp (shape dimensions)]
     (when-not-error (= (count data-shp)
                        (count args))
@@ -572,56 +456,21 @@ select when doing dynamic compilation has different terms than when not."
       {:shape data-shp
        :args (vec args)})
     (let [{:keys [shape strides]} dimensions
-          rev-shape (reversev shape)
-          rev-strides (reversev strides)
-          ;;Convert all :all arguments to either numbers or vectors
-          ;;performing argument checking if possible.
-          rev-args (->> (process-select-args shape args)
-                        reversev)
-          ;;Generate sequence of partial sums
-          rev-shape-products (reduce (fn [sums item]
-                                   (if sums
-                                     (conj sums (* (disambiguate-shape-entry item)
-                                                   (long (last sums))))
-                                     [item]))
-                                 nil
-                                 rev-shape)
-          ;;Calculate the first element index of the new item assuming
-          first-elem-idx (reduce (fn [idx [arg prev-shape-product]]
-                                   (+ (long idx)
-                                      (* (long (or prev-shape-product 1))
-                                         (long (cond
-                                                 (number? arg) arg
-                                                 (= :monotonically-increasing (get arg :type)) (long (get arg :start))
-                                                 ;;If we are doing indirect indexing then assume 0 relative index
-                                                 :else
-                                                 0)))))
-                                 0
-                                 (map vector rev-args
-                                      (concat [nil] rev-shape-products)))
-          elem-addr (elem-idx->addr rev-shape rev-strides rev-shape first-elem-idx)
-          rev-arg-shape-strides (->> (map vector rev-args rev-strides)
-                                     (remove (comp number? first)))
-          new-strides (->> (map second rev-arg-shape-strides)
-                           reversev)
-          new-shape (->> rev-arg-shape-strides
-                         (map #(let [item (first %)]
-                                 (if (= :monotonically-increasing (get item :type))
-                                   (long (get item :count))
-                                   item)))
-                         reversev)]
-      {:dimensions {:shape new-shape
-                    :strides new-strides}
-       :elem-offset elem-addr})))
+
+          shape (map dims-select/apply-select-arg-to-dimension shape args)
+          {shape :dimension-seq
+           strides :strides
+           offset :offset} (dims-select/dimensions->simpified-dimensions
+                            shape strides)]
+      {:dimensions {:shape shape
+                    :strides strides}
+       :elem-offset offset})))
 
 
-(defn select
-  "Limited implementation of the core.matrix select function call.  Each dimension must have an
-entry and each entry may be:
-:all
-monotonically increasing inclusive range
-Index tensor (has exactly 1 dimension and it itself has a direct non-strided shape).
-see:
-https://cloojure.github.io/doc/core.matrix/clojure.core.matrix.html#var-select"
-  [dimensions & args]
-  (select-detail dimensions args))
+(defn dimensions->column-stride
+  ^long [{:keys [shape strides]}]
+  (long
+   (let [dim-count (count strides)]
+     (if (> dim-count 1)
+       (get strides (- dim-count 2))
+       (get shape 0 1)))))
