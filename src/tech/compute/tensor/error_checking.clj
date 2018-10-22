@@ -1,5 +1,5 @@
 (ns tech.compute.tensor.error-checking
-  (:require [tech.datatype.core :as dtype]
+  (:require [tech.datatype :as dtype]
             [tech.compute.tensor.utils :refer [when-not-error
                                                all-combinations]]
             [tech.compute.tensor.protocols :as tens-proto]

@@ -1,6 +1,6 @@
 (ns tech.compute.tensor.defaults
   (:require [tech.compute :as compute]
-            [tech.datatype.core :as dtype]
+            [tech.datatype :as dtype]
             [tech.compute.tensor.protocols :as tens-proto]))
 
 

@@ -4,7 +4,7 @@
             [tech.compute.driver :as drv]
             [tech.compute.tensor :as ct]
             [tech.compute.tensor.operations :as tops]
-            [tech.datatype.core :as dtype]
+            [tech.datatype :as dtype]
             [tech.compute.verify.tensor :refer [tensor-default-context]]))
 
 

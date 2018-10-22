@@ -4,7 +4,7 @@
             [tech.compute.tensor.dimensions.shape :as shape]
             [tech.compute.tensor.utils :refer [when-not-error]]
             [clojure.core.matrix :as m]
-            [tech.datatype.core :as dtype]))
+            [tech.datatype :as dtype]))
 
 (set! *unchecked-math* :warn-on-boxed)
 (set! *warn-on-reflection* true)

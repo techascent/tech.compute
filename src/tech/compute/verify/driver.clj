@@ -1,7 +1,7 @@
 (ns tech.compute.verify.driver
   (:require [clojure.test :refer :all]
             [tech.compute.driver :as drv]
-            [tech.datatype.core :as dtype]
+            [tech.datatype :as dtype]
             [tech.datatype.base :as dtype-base]
             [clojure.core.matrix :as m]
             [tech.compute.verify.utils :as verify-utils]

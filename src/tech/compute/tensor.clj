@@ -37,7 +37,7 @@ In general we want as much error checking and analysis done in this file as oppo
   agree to the extent possible."
   (:require [tech.compute.driver :as compute-drv]
             [tech.compute :as compute]
-            [tech.datatype.core :as dtype]
+            [tech.datatype :as dtype]
             [tech.datatype.base :as dtype-base]
             [clojure.core.matrix.protocols :as mp]
             [mikera.vectorz.matrix-api]

@@ -1,5 +1,5 @@
 (ns tech.compute.cpu.tensor-math
-  (:require [tech.datatype.core :as dtype]
+  (:require [tech.datatype :as dtype]
             [tech.datatype.java-primitive :as primitive]
             [tech.datatype.java-unsigned :as unsigned]
             [tech.compute.tensor.math :as tm]
@@ -24,7 +24,6 @@
                      datatype->cast-fn
                      ] :as nio-access])
   (:import [tech.compute.cpu.driver CPUStream]
-           [com.github.fommil.netlib BLAS]
            [java.security SecureRandom]))
 
 

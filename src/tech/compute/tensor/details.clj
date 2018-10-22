@@ -1,7 +1,7 @@
 (ns tech.compute.tensor.details
   "Details of tensor operation implementation"
   (:require [tech.compute :as compute]
-            [tech.datatype.core :as dtype]
+            [tech.datatype :as dtype]
             [tech.compute.tensor.protocols :as tens-proto]
 
             [tech.compute.tensor.math :as tm]

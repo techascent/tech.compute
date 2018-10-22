@@ -3,7 +3,7 @@
             [tech.compute.tensor.dimensions :as dims]
             [tech.compute.driver :as compute-drv]
             [clojure.core.matrix :as m]
-            [tech.datatype.core :as dtype]
+            [tech.datatype :as dtype]
             [tech.resource :as resource]))
 
 

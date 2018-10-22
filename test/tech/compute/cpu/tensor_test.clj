@@ -11,7 +11,7 @@
             [tech.compute.cpu.driver :refer [driver]]
             [tech.compute.cpu.tensor-math :as cpu-tm]
             [tech.compute.tensor :as ct]
-            [tech.datatype.core :as dtype]))
+            [tech.datatype :as dtype]))
 
 
 (use-fixtures :each test-wrapper)

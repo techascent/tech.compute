@@ -1,6 +1,6 @@
 (ns tech.compute.cpu.driver
   (:require [tech.compute.driver :as drv]
-            [tech.datatype.core :as dtype]
+            [tech.datatype :as dtype]
             [tech.datatype.java-primitive :as primitive]
             [tech.datatype.java-unsigned :as unsigned]
             [clojure.core.async :as async]

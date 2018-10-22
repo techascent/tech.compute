@@ -9,7 +9,7 @@
    * Stream: Stream of execution occuring on the device.
    * Event: A synchronization primitive emitted in a stream to notify other
             streams that might be blocking."
-  (:require [tech.datatype.core :as dtype]
+  (:require [tech.datatype :as dtype]
             [clojure.core.matrix :as m]
             [tech.resource :as resource]))
 

@@ -4,7 +4,7 @@
   path."
   (:require [tech.compute.tensor.utils
              :refer [when-not-error reversev map-reversev]]
-            [tech.datatype.core :as dtype]))
+            [tech.datatype :as dtype]))
 
 
 (set! *unchecked-math* :warn-on-boxed)

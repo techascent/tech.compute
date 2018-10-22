@@ -3,7 +3,7 @@
             [tech.compute.tensor :as ct]
             [tech.compute.tensor.dimensions :as ct-dims]
             [tech.compute.driver :as drv]
-            [tech.datatype.core :as dtype]
+            [tech.datatype :as dtype]
             [clojure.test :refer :all]
             [clojure.core.matrix :as m]
             [clojure.core.matrix.stats :as stats]

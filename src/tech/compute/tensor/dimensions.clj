@@ -8,7 +8,7 @@
   number.  This means that that dimension should be indexed indirectly.  If a shape has
   any index buffers then it is considered an indirect shape."
   (:require [clojure.core.matrix :as m]
-            [tech.datatype.core :as dtype]
+            [tech.datatype :as dtype]
             [tech.compute.tensor.dimensions.select :as dims-select]
             [tech.compute.tensor.dimensions.shape :as shape]
             [tech.compute.tensor.utils
