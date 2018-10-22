@@ -472,5 +472,7 @@ https://cloojure.github.io/doc/core.matrix/clojure.core.matrix.html#var-select"
   (long
    (let [dim-count (count strides)]
      (if (> dim-count 1)
+       ;;get the second from the last stride
        (get strides (- dim-count 2))
+       ;;Get the dimension count
        (get shape 0 1)))))
