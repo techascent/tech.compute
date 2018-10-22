@@ -73,14 +73,6 @@ Argument order is specified by arg-order")
 because gemm is not implemented in any system with anything like indirect addressing or
 any other of the index system features aside from column stride.
 c = alpha * (trans-a? a) * (trans-b? b) + beta * c")
-  (gemv! [stream
-          c-buf inc-c
-          trans-a? alpha
-          A-buf a-row-count a-col-count a-colstride
-          x-buf inc-x
-          beta]
-    "Generalized matrix*vector.  Similar to above, the index system isn't useful
-and could result in ambiguity.  So we pass in the striding specifically.")
 
   (rand! [stream dest distribution]
     "Generate a pool of random numbers over this distribution.  All elements of dest are assigned

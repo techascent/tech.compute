@@ -45,10 +45,6 @@
   (verify-tensor/gemm (driver) *datatype*))
 
 
-(def-double-float-test gemv
-  (verify-tensor/gemv (driver) *datatype*))
-
-
 (def-all-dtype-exception-unsigned ternary-op-select
   (verify-tensor/ternary-op-select (driver) *datatype*))
 

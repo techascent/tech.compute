@@ -205,20 +205,9 @@
     (cpu-driver/with-stream-dispatch stream
       (cmu/col->row-gemm (get-in (blas-fn-map) [(dtype/get-datatype C) :gemm])
                          trans-a? trans-b? a-row-count a-col-count b-col-count
-                         alpha A a-colstride
-                         B b-colstride
-                         beta C c-colstride)))
-
-  (gemv! [stream
-          c inc-c
-          trans-a? alpha
-          A a-row-count a-col-count a-colstride
-          x inc-x
-          beta]
-    (cpu-driver/with-stream-dispatch stream
-      (cmu/col->row-gemv (get-in (blas-fn-map) [(dtype/get-datatype c) :gemv])
-                         trans-a? a-row-count a-col-count alpha
-                         A a-colstride x inc-x beta c inc-c)))
+                         alpha (ct/tensor->buffer A) a-colstride
+                         (ct/tensor->buffer B) b-colstride
+                         beta (ct/tensor->buffer C) c-colstride)))
 
 
   (rand! [stream dest {:keys [type] :as distribution}]

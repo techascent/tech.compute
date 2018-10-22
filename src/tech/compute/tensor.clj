@@ -492,34 +492,12 @@ The leading dimensions of both vectors must match."
       {:b-shape b-shape
        :c-shape c-shape})
     (tm/gemm! (defaults/infer-stream C)
-              (tensor->buffer C) (tensor->column-stride C)
+              C (tensor->column-stride C)
               trans-a? trans-b? alpha
-              (tensor->buffer A) a-row-count a-col-count (tensor->column-stride A)
-              (tensor->buffer B) b-col-count (tensor->column-stride B)
+              A a-row-count a-col-count (tensor->column-stride A)
+              B b-col-count (tensor->column-stride B)
               beta))
   C)
-
-
-(defn gemv!
-  "c = alpha * (trans-a? A) * x + beta * c"
-  ^Tensor [c trans-a? alpha A x beta]
-  (error-checking/external-library-check! "gemv!" c A x)
-  (error-checking/ensure-matrix A)
-  (error-checking/ensure-vector x)
-  (when-not-error (= 1 (count (dtype/shape x)))
-    "x appears to not be a vector"
-    {:x-shape (dtype/shape x)})
-  (let [[a-row-count a-col-count] (tensor->2d-shape A)
-        inc-x (details/blas-vector-increment x)
-        inc-c (details/blas-vector-increment c)
-        a-colstride (tensor->column-stride A)]
-    (tm/gemv! (defaults/infer-stream c)
-              (tensor->buffer c) inc-c
-              trans-a? alpha
-              (tensor->buffer A) a-row-count a-col-count a-colstride
-              (tensor->buffer x) inc-x
-              beta))
-  c)
 
 
 (defn gaussian-distribution
