@@ -672,7 +672,7 @@ projecting to the surface of the hypersphere like normalize does, do a <= operat
         partition-shape (->> (rest item-shape)
                              drop-last
                              reverse)]
-    (if (seq partition-shape)
+    (if (> (count item-shape) 1)
       (->> partition-shape
            (reduce (fn [retval part-value]
                      (partitionv part-value retval))

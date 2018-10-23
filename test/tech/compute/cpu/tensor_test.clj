@@ -96,7 +96,28 @@
     (let [tens-a (ct/->tensor [1 2 3])
           double-data (ct/to-double-array tens-a)]
       (is (= [1.0 2.0 3.0]
-             (vec double-data))))))
+             (vec double-data))))
+    ;;Hijacking test for test out ->jvm functionality
+    (let [src-data [[1 2] [3 4]]
+          tens-b (ct/->tensor src-data)]
+      (is (= src-data
+             (ct/to-jvm tens-b :datatype :int32))))
+    (let [src-data [[1 2]]
+          tens-b (ct/->tensor src-data)]
+      (is (= src-data
+             (ct/to-jvm tens-b :datatype :int32))))
+    (let [src-data [[2]]
+          tens-b (ct/->tensor src-data)]
+      (is (= src-data
+             (ct/to-jvm tens-b :datatype :int32))))
+    (let [src-data [1 2]
+          tens-b (ct/->tensor src-data)]
+      (is (= src-data
+             (ct/to-jvm tens-b :datatype :int32))))
+    (let [src-data [[[1 2]]]
+          tens-b (ct/->tensor src-data)]
+      (is (= src-data
+             (ct/to-jvm tens-b :datatype :int32))))))
 
 
 (deftest infer-stream
