@@ -295,24 +295,28 @@ for the cuda backend."
        (is (m/equals (ct/to-double-array tens-c)
                      [2.0, 2.0, 18.0, 14.0, 14.0, 24.0, 30.0, 30.0, 30.0])))
 
-     (try
-       (ct/assign! tens-c 10)
-       (ct/gemm! tens-c false false 1 tens-a tens-b 1)
-       (is (m/equals (ct/to-double-array tens-c)
-                     [16.0 16.0 16.0 34.0 34.0 34.0 52.0 52.0 52.0]))
+     ;;This is a good test to be sure gemm implementations are using
+     ;;current values for their lda, ldb, and ldc parameters.
+     (let [tens-a (ct/submatrix tens-a 0 3 0 2)
+           tens-b (ct/submatrix tens-b 0 2 0 3)]
+       (ct/gemm! tens-c false false 1 tens-a tens-b 0)
+       (is (m/equals [2.0, 2.0, 2.0, 14.0, 14.0, 14.0, 26.0, 26.0, 26.0]
+                     (ct/to-double-array tens-c))))
 
-       (let [tens-a (ct/submatrix tens-a 1 2 1 2)
-             tens-b (ct/submatrix tens-b 0 2 0 2)
-             tens-c-sub (ct/submatrix tens-c 1 2 1 2)]
-         (ct/gemm! tens-c-sub false false 1 tens-a tens-b 1)
-         (is (m/equals [52.0, 52.0, 82.0, 82.0]
-                       (ct/to-double-array tens-c-sub)))
-         (is (m/equals [16.0, 16.0, 16.0, 34.0, 52.0, 52.0, 52.0, 82.0, 82.0]
-                       (ct/to-double-array tens-c))))
-       ;;Exception here is fine.  The gemm operation doesn't always support
-       ;;summing into C
-       (catch Throwable e
-         nil)))))
+     (ct/assign! tens-c 10)
+     (ct/gemm! tens-c false false 1 tens-a tens-b 1)
+     (is (m/equals (ct/to-double-array tens-c)
+                   [16.0 16.0 16.0 34.0 34.0 34.0 52.0 52.0 52.0]))
+
+     ;;Summation and submatrix
+     (let [tens-a (ct/submatrix tens-a 1 2 1 2)
+           tens-b (ct/submatrix tens-b 0 2 0 2)
+           tens-c-sub (ct/submatrix tens-c 1 2 1 2)]
+       (ct/gemm! tens-c-sub false false 1 tens-a tens-b 1)
+       (is (m/equals [52.0, 52.0, 82.0, 82.0]
+                     (ct/to-double-array tens-c-sub)))
+       (is (m/equals [16.0, 16.0, 16.0, 34.0, 52.0, 52.0, 52.0, 82.0, 82.0]
+                     (ct/to-double-array tens-c)))))))
 
 
 (defn ternary-op-select
