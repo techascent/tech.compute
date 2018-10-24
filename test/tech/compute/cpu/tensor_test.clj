@@ -41,7 +41,7 @@
   (verify-tensor/channel-op (driver) *datatype*))
 
 
-(def-double-float-test gemm
+(deftest gemm
   (verify-tensor/gemm (driver) *datatype*))
 
 

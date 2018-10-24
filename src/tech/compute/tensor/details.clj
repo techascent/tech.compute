@@ -326,13 +326,3 @@ The leading dimensions of both vectors must match."
     (error-checking/ensure-datatypes (dtype/get-datatype output) input)
     (tm/unary-reduce! (defaults/infer-stream options output) output alpha input op)
     output))
-
-
-(defn blas-vector-increment
-  ^long [tensor]
-  (if-let [retval (-> (tens-proto/tensor->dimensions tensor)
-                      :strides
-                      last)]
-    retval
-    (throw (ex-info "Failed operation"
-                    {:dims (tens-proto/tensor->dimensions tensor)}))))

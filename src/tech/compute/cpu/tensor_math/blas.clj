@@ -21,12 +21,12 @@
 
 (defmacro ^:private blas-macro-iter
   [inner-macro]
-  `{:float64 (~inner-macro :float64 .dgemm .dgemv)
-    :float32 (~inner-macro :float32 .sgemm .sgemv)})
+  `{:float64 (~inner-macro :float64 .dgemm)
+    :float32 (~inner-macro :float32 .sgemm)})
 
 
 (defmacro ^:private blas-impl
-  [datatype gemm-op gemv-op]
+  [datatype gemm-op]
   `{:gemm (fn [trans-a?# trans-b?# a-row-count# a-col-count# b-col-count#
                ;;Rowstride because blas is row-major (the tensor system is column-major)
                alpha# A# a-rowstride#
@@ -57,33 +57,7 @@
                M# N# K#
                alpha# A# A-offset# a-rowstride#
                B# B-offset# b-rowstride#
-               beta# C# C-offset# c-rowstride#)))
-    :gemv (fn [trans-a?# a-row-count# a-col-count#
-               alpha# A# a-rowstride#
-               x# inc-x#
-               beta# y# inc-y#]
-            (let [a-rowstride# (long a-rowstride#)
-                  a-row-count# (long a-row-count#)
-                  a-col-count# (long a-col-count#)
-                  A# (item->typed-nio-buffer ~datatype A#)
-                  x# (item->typed-nio-buffer ~datatype x#)
-                  y# (item->typed-nio-buffer ~datatype y#)
-                  A-offset# (.position A#)
-                  x-offset# (.position x#)
-                  y-offset# (.position y#)
-                  A# (.array A#)
-                  x# (.array x#)
-                  y# (.array y#)
-                  alpha# (datatype->cast-fn ~datatype alpha#)
-                  inc-x# (long inc-x#)
-                  beta# (datatype->cast-fn ~datatype beta#)
-                  inc-y# (long inc-y#)]
-              (~gemv-op (BLAS/getInstance)
-               (cmu/bool->blas-trans trans-a?#)
-               a-row-count# a-col-count#
-               alpha# A# A-offset# a-rowstride#
-               x# x-offset# inc-x#
-               beta# y# y-offset# inc-y#)))})
+               beta# C# C-offset# c-rowstride#)))})
 
 
 (def ^:private blas-fn-map

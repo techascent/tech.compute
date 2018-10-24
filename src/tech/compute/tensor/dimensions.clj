@@ -476,3 +476,26 @@ https://cloojure.github.io/doc/core.matrix/clojure.core.matrix.html#var-select"
        (get strides (- dim-count 2))
        ;;Get the dimension count
        (get shape 0 1)))))
+
+
+(defn trans-2d-shape
+  [trans-a? dims]
+  (let [[rows cols] (->2d-shape dims)]
+    (if trans-a?
+      [cols rows]
+      [rows cols])))
+
+
+(defn matrix-column-stride
+  "Returns the larger of the 2 strides"
+  ^long [{:keys [shape strides] :as dims}]
+  (when-not-error (= 2 (count shape))
+    "Not a matrix" {:dimensions dims})
+  (apply max strides))
+
+
+(defn matrix-element-stride
+  ^long [{:keys [shape strides] :as dims}]
+  (when-not-error (= 2 (count shape))
+    "Not a matrix" {:dimensions dims})
+  (apply min strides))

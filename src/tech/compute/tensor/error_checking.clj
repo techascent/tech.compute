@@ -144,23 +144,11 @@ that rerequires the items to have the same element count."
     {:datatype dtype}))
 
 
-(defn ensure-external-library-compatible
-  [& tensors]
-  (when-not-error (every? dims/access-increasing? (map :dimensions tensors))
-    "External libraries (blas (gemm gemv) and cudnn require dimensions access
-to be increasing."
-    {:dimensions-increasing (mapv vector
-                                 (map :dimensions tensors)
-                                 (map (comp dims/access-increasing? :dimensions)
-                                      tensors))}))
-
-
 (defn external-library-check!
   [method-name & tensors]
   (apply ensure-datatypes (dtype/get-datatype (first tensors)) (rest tensors))
   (apply ensure-same-device tensors)
-  (ensure-cudnn-datatype (dtype/get-datatype (first tensors)) method-name)
-  (apply ensure-external-library-compatible tensors))
+  (ensure-cudnn-datatype (dtype/get-datatype (first tensors)) method-name))
 
 
 (defmacro ensure-matrix

@@ -180,9 +180,11 @@
        (max (ct/ecount a) (ct/ecount b) (ct/ecount dest))
        operation arg-order)))
 
-  (ternary-op-constant-constant! [stream dest a a-alpha const-1 const-2 operation arg-order]
+  (ternary-op-constant-constant! [stream dest a a-alpha const-1 const-2
+                                  operation arg-order]
     (cpu-driver/with-stream-dispatch stream
-      ((get-in (ternary-op-table) [(dtype/get-datatype dest) :ternary-op-constant-constant!])
+      ((get-in (ternary-op-table) [(dtype/get-datatype dest)
+                                   :ternary-op-constant-constant!])
        (->buffer dest) (->dimensions dest)
        (->buffer a) (->dimensions a) a-alpha
        const-1

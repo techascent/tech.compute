@@ -454,31 +454,40 @@ The leading dimensions of both vectors must match."
   (details/unary-reduce! output alpha input op options))
 
 
-(defn- trans-2d-shape
-  [trans-a? a]
-  (let [[rows cols] (tensor->2d-shape a)]
-    (if trans-a?
-      [cols rows]
-      [rows cols])))
-
-
 (defn gemm!
   "C = alpha * (trans-a? A) * (trans-b? B) + beta * C."
-  ^Tensor [C trans-a? trans-b? alpha A B beta]
+  ^Tensor [C trans-a? trans-b? alpha A B beta & [options]]
   (error-checking/external-library-check! "gemm!" C A B)
   (error-checking/ensure-matrix C)
   (error-checking/ensure-matrix A)
   (error-checking/ensure-matrix B)
 
-  (let [[a-row-count a-col-count :as a-shape] (trans-2d-shape trans-a? A)
-        [b-row-count b-col-count :as b-shape] (trans-2d-shape trans-b? B)
-        [c-row-count c-col-count :as c-shape] (tensor->2d-shape C)
+  (let [A-dims (tensor->dimensions A)
+        B-dims (tensor->dimensions B)
+        C-dims (tensor->dimensions C)
+        a-in-place-trans? (not (dims/access-increasing? A-dims))
+        b-in-place-trans? (not (dims/access-increasing? B-dims))
+        trans-a? (if a-in-place-trans? (not trans-a?) trans-a?)
+        trans-b? (if b-in-place-trans? (not trans-b?) trans-b?)
+        A (if a-in-place-trans? (transpose A [1 0]) A)
+        B (if b-in-place-trans? (transpose B [1 0]) B)
+        [a-row-count a-col-count :as a-shape] (dims/trans-2d-shape trans-a? A-dims)
+        [b-row-count b-col-count :as b-shape] (dims/trans-2d-shape trans-b? B-dims)
+        [c-row-count c-col-count :as c-shape] (dims/->2d-shape C-dims)
         a-row-count (long a-row-count)
         a-col-count (long a-col-count)
         b-row-count (long b-row-count)
         b-col-count (long b-col-count)
         c-row-count (long c-row-count)
         c-col-count (long c-col-count)]
+    (when-not-error (every? #(= 1 (dims/matrix-element-stride %))
+                            [A-dims B-dims C-dims])
+      "Element strides must be 1 for gemm"
+      {:element-strides (mapv dims/matrix-element-stride [A-dims B-dims C-dims])})
+    (when-not-error (dims/access-increasing? C-dims)
+      "C cannot be in-place-transposed."
+      {:c-dims C-dims})
+
     (when-not-error (= a-col-count b-row-count)
       (format "A %s col count doesn't match B %s row count" a-shape b-shape)
       {:a-shape a-shape
@@ -491,11 +500,11 @@ The leading dimensions of both vectors must match."
       (format "C %s col count doesn't match B %s col count" c-shape b-shape)
       {:b-shape b-shape
        :c-shape c-shape})
-    (tm/gemm! (defaults/infer-stream C)
-              C (tensor->column-stride C)
+    (tm/gemm! (defaults/infer-stream options C)
+              C (dims/matrix-column-stride C-dims)
               trans-a? trans-b? alpha
-              A a-row-count a-col-count (tensor->column-stride A)
-              B b-col-count (tensor->column-stride B)
+              A a-row-count a-col-count (dims/matrix-column-stride A-dims)
+              B b-col-count (dims/matrix-column-stride B-dims)
               beta))
   C)
 

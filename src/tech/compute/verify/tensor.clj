@@ -316,7 +316,35 @@ for the cuda backend."
        (is (m/equals [52.0, 52.0, 82.0, 82.0]
                      (ct/to-double-array tens-c-sub)))
        (is (m/equals [16.0, 16.0, 16.0, 34.0, 52.0, 52.0, 52.0, 82.0, 82.0]
-                     (ct/to-double-array tens-c)))))))
+                     (ct/to-double-array tens-c))))
+     ;;Very different sized gemm inputs - regression
+     (let [tens-a (-> (ct/new-tensor [1024 128])
+                      (ct/assign! 1))
+           tens-b (-> (ct/->tensor (->> (range (* 128 235))
+                                        (partition 235))))
+           tens-c (ct/new-tensor [1024 235])]
+       ;;Hopefully this will throw exception but it may just exit program
+       ;;if gemm is not correctly implemented.
+       (ct/gemm! tens-c false false 1 tens-a tens-b 0)
+       (is (m/equals [1910080.0 1910208.0 1910336.0 1910464.0
+                      1910592.0 1910720.0 1910848.0 1910976.0 1911104.0 1911232.0]
+                     (-> tens-c
+                         (ct/in-place-reshape [10])
+                         ct/to-jvm))))
+
+     (testing "In place transpose works as expected"
+       (ct/gemm! tens-c false false 1 (ct/transpose tens-a [1 0]) tens-b 0)
+       ;;Same results as (gemm true false)
+       (is (m/equals (ct/to-double-array tens-c)
+                     [18.0, 18.0, 18.0, 24.0, 24.0, 24.0, 30.0, 30.0, 30.0]))
+       ;;Same results as (gemm false false)
+       (ct/gemm! tens-c true false 1 (ct/transpose tens-a [1 0]) tens-b 0)
+       (is (m/equals (ct/to-double-array tens-c)
+                     [6.0 6.0 6.0 24.0 24.0 24.0 42.0 42.0 42.0]))
+
+       ;;Transposing C is illegal
+       (is (thrown? Throwable (ct/gemm! (ct/transpose tens-c [1 0])
+                                        true false 1 tens-a tens-b 0)))))))
 
 
 (defn ternary-op-select
