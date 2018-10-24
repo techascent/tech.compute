@@ -471,6 +471,8 @@ The leading dimensions of both vectors must match."
         trans-b? (if b-in-place-trans? (not trans-b?) trans-b?)
         A (if a-in-place-trans? (transpose A [1 0]) A)
         B (if b-in-place-trans? (transpose B [1 0]) B)
+        A-dims (tensor->dimensions A)
+        B-dims (tensor->dimensions B)
         [a-row-count a-col-count :as a-shape] (dims/trans-2d-shape trans-a? A-dims)
         [b-row-count b-col-count :as b-shape] (dims/trans-2d-shape trans-b? B-dims)
         [c-row-count c-col-count :as c-shape] (dims/->2d-shape C-dims)
