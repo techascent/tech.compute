@@ -1,6 +1,6 @@
 # tensor
 
-The tensor abstraction is designed to provide a mid level math library built on top of the abstractions 
+The tensor abstraction is designed to provide a mid level math library built on top of the abstractions
 defined in the [compute layer](../README.md).  The tensor system is built around a few key concepts, notably:
 *  Separation of description from data.  You can change the description without affecting the data and the
 interpretation of the data will change.  You can also offset the data then create a description and the tuple behaves
@@ -79,16 +79,16 @@ in the compute document is that it enables algorithms such as:
    to optimize exactly 1 buffer as optimization is currently a
    linearly independent operation of the gradient, parameters, and the
    optimizer parameters.
-   
+
 *  Allocate one buffer and create multiple tensors that all exist at
    the same base address of the buffer.
-   
-   
-   
+
+
+
 ### Existing backends
 * [cpu](../src/tech/compute/cpu/tensor_math.clj)
-   
-   
+
+
 ### Operation Design (adding new unary/binary/binary operations)
 
 Unary and binary operations obey a principle that they place their
@@ -129,7 +129,7 @@ Your new operation is now setup and will work across all supported broadcast pat
 
 Broadcasting is a way of indexing through multple-operand functions that allows things such as:
 *  Distribute values into specific channels in an image.
-*  Summing rows into a vector. 
+*  Summing rows into a vector.
 *  Summing columns into a vector.
 
 [Here](https://docs.scipy.org/doc/numpy-1.13.0/user/basics.broadcasting.html) is some good documentation
@@ -141,4 +141,4 @@ The rules for broadcasting in the tensor system are:
 3. While indexing through the specific operand, take the remainder of the dimension index with the specific operands index.
 4. The operation's overall element count is (apply * max-shape).
 
-* Reference [cpu](../src/tech/compute/tensor/dimensions.clj#L226) implementation.
+* Reference [cpu](../src/tech/compute/tensor/dimensions.clj#L146) implementation.

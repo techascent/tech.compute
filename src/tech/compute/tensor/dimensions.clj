@@ -183,31 +183,6 @@
               offset)))))
 
 
-(defn elem-idx->addr-ary
-  "Precondition:  rev-shape, rev-max-shape, strides are same length.
-  rev-max-shape: maxes of all shapes passed in, reversed
-  rev-shape: reverse shape.
-  rev-strides: reverse strides.
-  arg: >= 0.
-  Slightly optimized to use int arrays to avoid casting."
-  ^long [^ints rev-shape ^ints rev-strides ^ints rev-max-shape ^long arg]
-  (long (let [num-items (alength rev-shape)]
-          (loop [idx (long 0)
-                 arg (long arg)
-                 offset (long 0)]
-            (if (and (> arg 0)
-                     (< idx num-items))
-              (let [next-max (aget rev-max-shape idx)
-                    next-stride (aget rev-strides idx)
-                    next-dim (aget rev-shape idx)
-                    max-idx (rem arg next-max)
-                    shape-idx (rem arg next-dim)]
-                (recur (inc idx)
-                       (quot arg next-max)
-                       (+ offset (* next-stride shape-idx))))
-              offset)))))
-
-
 (defn- max-extend-strides
   "Extend strides to match the shape vector length by assuming data
   is packed."

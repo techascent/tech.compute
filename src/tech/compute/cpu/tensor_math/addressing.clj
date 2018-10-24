@@ -23,7 +23,21 @@
 (defrecord ElemIdxToAddr [^ints rev-shape ^ints rev-strides ^ints rev-max-shape]
   ElemIdxToAddressFunction
   (^long idx_to_address [this ^long arg]
-   (ct-dims/elem-idx->addr-ary rev-shape rev-strides rev-max-shape arg)))
+   (let [num-items (alength rev-shape)]
+     (loop [idx (long 0)
+            arg (long arg)
+            offset (long 0)]
+       (if (and (> arg 0)
+                (< idx num-items))
+         (let [next-max (aget rev-max-shape idx)
+               next-stride (aget rev-strides idx)
+               next-dim (aget rev-shape idx)
+               max-idx (rem arg next-max)
+               shape-idx (rem arg next-dim)]
+           (recur (inc idx)
+                  (quot arg next-max)
+                  (+ offset (* next-stride shape-idx))))
+         offset)))))
 
 
 (defrecord SimpleElemIdxToAddr []
