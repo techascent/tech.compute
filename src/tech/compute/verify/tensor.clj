@@ -344,7 +344,8 @@ for the cuda backend."
 
        ;;Transposing C is illegal
        (is (thrown? Throwable (ct/gemm! (ct/transpose tens-c [1 0])
-                                        true false 1 tens-a tens-b 0)))))))
+                                        true false 1 tens-a tens-b 0)))
+       ))))
 
 
 (defn ternary-op-select

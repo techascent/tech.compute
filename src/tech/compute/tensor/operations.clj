@@ -61,6 +61,13 @@
   ([output x1 x2]
    (tensor/binary-op! output 1.0 x1 1.0 x2 :*)))
 
+(defn /
+  "Divides 1 by x2 them together and puts the result in the mutated output"
+  ([output x1]
+   (/ output output x1))
+  ([output x1 x2]
+   (tensor/binary-op! output 1.0 x1 1.0 x2 :/)))
+
 (defn -
   "Takes and x1 and x2 subtracts them and puts the result in the mutated output"
   ([output x1]
