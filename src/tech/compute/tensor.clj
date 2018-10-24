@@ -1,9 +1,10 @@
 (ns tech.compute.tensor
-  "Tensor library used to implement the basic math abstraction in cortex.  This
-  abstraction is meant to provide a language in which to implement new things but that
-  explicitly avoids access to certain parts of the compute ecosystem that the engine
-  driving the ecosystem is expected to manage.  Clients should not, for instance, access
-  the stream or the datatype directly.
+  "Tensor library used to implement the basic math abstraction fairly easily
+  implementable across a wide range of compute devices.  This abstraction is meant to
+  provide a language in which to implement some amount of functionalty especially useful
+  in quickly testing out algorithmic updates or moving data to/from external libraries.
+  As such, it has extensive support for reshape/select/transpose type operations but
+  only nominal base math facilities are provided by default.
 
 There is an implicit assumption throughout this file that implementations will loop
   through smaller entities instead of throwing an exception if sizes don't match.  This

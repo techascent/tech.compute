@@ -70,11 +70,11 @@ forgiving as possible.
 
 The datatype library allows identification and efficient copying of data into packed
 sequential buffers, including marshalling copies where we want to say copy a buffer of
-bytes into a buffer of floats.  This library is very carefully written to allow cortex
-to ensure that the cortex engine does not have unnecessary bottlenecks around feeding
-inference or training data to the system and is a crucial component to ensure good
-performance while still allowing users complete flexibility with regards to their choice
-of data used in their systems external to the compute system.
+bytes into a buffer of floats.  This library is very carefully written to allow
+efficient upload/download characteristics so client code does not have unnecessary
+bottlenecks around moving data to or from a compute device while still allowing users
+complete flexibility with regards to their choice of data used in their systems external
+to the compute system.
 
 
 This combination of systems (driver, datatype, and resource) are designed to work
