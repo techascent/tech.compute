@@ -53,7 +53,8 @@ In general we want as much error checking and analysis done in this file as oppo
             [tech.compute.tensor.protocols :as tens-proto]
             [tech.compute.tensor.defaults :as defaults]
             [tech.compute.tensor.error-checking :as error-checking]
-            [tech.compute.tensor.details :as details])
+            [tech.compute.tensor.details :as details]
+            [tech.compute.registry :as registry])
   (:import [java.io Writer]))
 
 
@@ -603,7 +604,9 @@ projecting to the surface of the hypersphere like normalize does, do a <= operat
    (fn [_]
      (require 'tech.compute.cpu.driver)
      (require 'tech.compute.cpu.tensor-math)
-     ((resolve 'tech.compute.cpu.driver/default-cpu-stream)))))
+     (-> (registry/driver :tech.compute.cpu.driver)
+         compute/default-device
+         compute/default-stream))))
 
 
 (defn copy-to-java-type

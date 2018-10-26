@@ -18,7 +18,7 @@
 
 
 (def-all-dtype-test assign-constant!
-  (verify-tensor/assign-constant! (driver) *datatype*))
+  (verify-tensor/assign-constant! (driver) :int64))
 
 
 (def-all-dtype-test assign-marshal
@@ -121,8 +121,9 @@
 
 
 (deftest infer-stream
-  (is (= [1 2 3]
-         (-> (cpu-tm/typed-bufferable->tensor
-              (dtype/make-array-of-type :int16 [1 2 3]))
-             ct/clone
-             (ct/to-jvm :datatype :int32)))))
+  (testing "Test that the different buffer types of the cpu backend can interact reasonably"
+    (is (= [1 2 3]
+           (-> (dtype/make-array-of-type :int16 [1 2 3])
+               cpu-tm/buffer->tensor
+               ct/clone
+               (ct/to-jvm :datatype :int32))))))
