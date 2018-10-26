@@ -85,7 +85,7 @@
       :alias? (fn [lhs# rhs#]
                 (drv/alias? (dtype-jna/->typed-pointer lhs#)
                             rhs#))
-      :partially-alias (fn [lhs# rhs#]
+      :partially-alias? (fn [lhs# rhs#]
                          (drv/partially-alias? (dtype-jna/->typed-pointer lhs#)
                                                rhs#))}
      resource/PResource

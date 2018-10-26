@@ -183,31 +183,6 @@
               offset)))))
 
 
-(defn elem-idx->addr-ary
-  "Precondition:  rev-shape, rev-max-shape, strides are same length.
-  rev-max-shape: maxes of all shapes passed in, reversed
-  rev-shape: reverse shape.
-  rev-strides: reverse strides.
-  arg: >= 0.
-  Slightly optimized to use int arrays to avoid casting."
-  ^long [^ints rev-shape ^ints rev-strides ^ints rev-max-shape ^long arg]
-  (long (let [num-items (alength rev-shape)]
-          (loop [idx (long 0)
-                 arg (long arg)
-                 offset (long 0)]
-            (if (and (> arg 0)
-                     (< idx num-items))
-              (let [next-max (aget rev-max-shape idx)
-                    next-stride (aget rev-strides idx)
-                    next-dim (aget rev-shape idx)
-                    max-idx (rem arg next-max)
-                    shape-idx (rem arg next-dim)]
-                (recur (inc idx)
-                       (quot arg next-max)
-                       (+ offset (* next-stride shape-idx))))
-              offset)))))
-
-
 (defn- max-extend-strides
   "Extend strides to match the shape vector length by assuming data
   is packed."
@@ -476,3 +451,26 @@ https://cloojure.github.io/doc/core.matrix/clojure.core.matrix.html#var-select"
        (get strides (- dim-count 2))
        ;;Get the dimension count
        (get shape 0 1)))))
+
+
+(defn trans-2d-shape
+  [trans-a? dims]
+  (let [[rows cols] (->2d-shape dims)]
+    (if trans-a?
+      [cols rows]
+      [rows cols])))
+
+
+(defn matrix-column-stride
+  "Returns the larger of the 2 strides"
+  ^long [{:keys [shape strides] :as dims}]
+  (when-not-error (= 2 (count shape))
+    "Not a matrix" {:dimensions dims})
+  (apply max strides))
+
+
+(defn matrix-element-stride
+  ^long [{:keys [shape strides] :as dims}]
+  (when-not-error (= 2 (count shape))
+    "Not a matrix" {:dimensions dims})
+  (apply min strides))
