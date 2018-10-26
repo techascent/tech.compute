@@ -52,7 +52,8 @@ In general we want as much error checking and analysis done in this file as oppo
             [tech.compute.tensor.protocols :as tens-proto]
             [tech.compute.tensor.defaults :as defaults]
             [tech.compute.tensor.error-checking :as error-checking]
-            [tech.compute.tensor.details :as details])
+            [tech.compute.tensor.details :as details]
+            [tech.compute.registry :as registry])
   (:import [java.io Writer]))
 
 
@@ -464,7 +465,7 @@ The leading dimensions of both vectors must match."
 
 (defn gemm!
   "C = alpha * (trans-a? A) * (trans-b? B) + beta * C."
-  ^Tensor [C trans-a? trans-b? alpha A B beta]
+  ^Tensor [C trans-a? trans-b? alpha A B beta & [options]]
   (error-checking/external-library-check! "gemm!" C A B)
   (error-checking/ensure-matrix C)
   (error-checking/ensure-matrix A)
@@ -491,7 +492,7 @@ The leading dimensions of both vectors must match."
       (format "C %s col count doesn't match B %s col count" c-shape b-shape)
       {:b-shape b-shape
        :c-shape c-shape})
-    (tm/gemm! (defaults/infer-stream C)
+    (tm/gemm! (defaults/infer-stream options C)
               C (tensor->column-stride C)
               trans-a? trans-b? alpha
               A a-row-count a-col-count (tensor->column-stride A)
@@ -591,7 +592,9 @@ projecting to the surface of the hypersphere like normalize does, do a <= operat
    (fn [_]
      (require 'tech.compute.cpu.driver)
      (require 'tech.compute.cpu.tensor-math)
-     ((resolve 'tech.compute.cpu.driver/default-cpu-stream)))))
+     (-> (registry/driver :tech.compute.cpu.driver)
+         compute/default-device
+         compute/default-stream))))
 
 
 (defn copy-to-java-type

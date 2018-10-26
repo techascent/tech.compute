@@ -6,7 +6,14 @@
             [clojure.core.async :as async]
             [tech.resource :as resource]
             [tech.compute :as compute]
-            [tech.compute.registry :as registry])
+            [tech.compute.registry :as registry]
+            [tech.compute.cpu.jna-blas :as jna-blas]
+            [tech.datatype.jna :as dtype-jna]
+            ;;typed buffer implementation of buffer protocol
+            [tech.compute.cpu.typed-buffer]
+            ;;typed pointer implementation of buffer protocol
+            ;;Also enables javacpp
+            [tech.compute.cpu.typed-pointer])
   (:import  [java.nio ByteBuffer ShortBuffer IntBuffer
              LongBuffer FloatBuffer DoubleBuffer]
             [tech.datatype.java_unsigned TypedBuffer]))
@@ -158,6 +165,13 @@ Use with care; the synchonization primitives will just hang with this stream."
     retval))
 
 
+(defn- make-typed-thing
+  [datatype n-elems]
+  (if (jna-blas/has-blas?)
+    (dtype-jna/make-typed-pointer datatype n-elems)
+    (unsigned/make-typed-buffer datatype n-elems)))
+
+
 
 (extend-type CPUDevice
   drv/PDevice
@@ -175,7 +189,7 @@ Use with care; the synchonization primitives will just hang with this stream."
 
   (allocate-device-buffer [impl elem-count elem-type options]
     (check-stream-error impl)
-    (dtype/make-typed-buffer elem-type elem-count))
+    (make-typed-thing elem-type elem-count))
 
   (device->device-copy-compatible? [src-device dst-device] nil))
 
@@ -185,110 +199,15 @@ Use with care; the synchonization primitives will just hang with this stream."
   (driver-name [impl]
     driver-name)
 
-
   (get-devices [impl]
     @(get impl :devices))
 
   (allocate-host-buffer [impl elem-count elem-type options]
     (check-stream-error impl)
-    (dtype/make-typed-buffer elem-type elem-count)))
-
-
-(defn- in-range?
-  [^long lhs-off ^long lhs-len ^long rhs-off ^long rhs-len]
-  (or (and (>= rhs-off lhs-off)
-           (< rhs-off (+ lhs-off lhs-len)))
-      (and (>= lhs-off rhs-off)
-           (< lhs-off (+ rhs-off rhs-len)))))
-
-
-(defprotocol PNioPositionLength
-  (nio-make-view [item offset len])
-  (array-backing-store [item])
-  (nio-offset [item])
-  (nio-length [item]))
-
-
-(defmacro to-nio-buf
-  [datatype item]
-  `(primitive/datatype->buffer-cast-fn ~datatype ~item))
-
-
-(defmacro implement-pos-length
-  [buffer-type datatype]
-  `(clojure.core/extend
-       ~buffer-type
-     PNioPositionLength
-     {:nio-make-view (fn [item# offset# len#]
-                       ;;We slice the buffer to make it stand-alone
-                       (let [buf# (.slice (to-nio-buf ~datatype item#))
-                             offset# (long offset#)
-                             len# (long len#)]
-                         (.position buf# offset#)
-                         (.limit buf# (+ offset# len#))
-                         buf#))
-      :array-backing-store (fn [item#]
-                             (dtype/->array item#))
-      :nio-offset (fn [item#]
-                    (let [buf# (to-nio-buf ~datatype item#)]
-                      (.position buf#)))
-      :nio-length (fn [item#]
-                    (let [buf# (to-nio-buf ~datatype item#)]
-                      (- (.limit buf#)
-                         (.position buf#))))}))
-
-
-(defn get-offset
-  ^long [item]
-  (nio-offset (primitive/->buffer-backing-store item)))
-
-
-(defn get-length
-  ^long [item]
-  (nio-length (primitive/->buffer-backing-store item)))
-
-
-(implement-pos-length ByteBuffer :int8)
-(implement-pos-length ShortBuffer :int16)
-(implement-pos-length IntBuffer :int32)
-(implement-pos-length LongBuffer :int64)
-(implement-pos-length FloatBuffer :float32)
-(implement-pos-length DoubleBuffer :float64)
+    (make-typed-thing elem-type elem-count)))
 
 
 (declare default-cpu-stream)
-
-
-(extend-type TypedBuffer
-  drv/PBuffer
-  (sub-buffer [buffer offset length]
-    (unsigned/->TypedBuffer (nio-make-view (primitive/->buffer-backing-store buffer)
-                                           offset length)
-                            (dtype/get-datatype buffer)))
-  (alias? [lhs rhs]
-    (let [lhs-ary (array-backing-store (primitive/->buffer-backing-store lhs))
-          rhs-ary (array-backing-store (primitive/->buffer-backing-store rhs))]
-      (and (and lhs-ary rhs-ary)
-           (identical? lhs-ary rhs-ary)
-           (and (= (get-offset lhs)
-                   (get-offset rhs))))))
-  (partially-alias? [lhs rhs]
-    (let [lhs-ary (array-backing-store (primitive/->buffer-backing-store lhs))
-          rhs-ary (array-backing-store (primitive/->buffer-backing-store rhs))]
-      (and (and lhs-ary rhs-ary)
-           (identical? lhs-ary rhs-ary)
-           (in-range? (get-offset lhs) (get-length lhs)
-                      (get-offset rhs) (get-length rhs)))))
-  ;;For uniformity all host/device buffers must implement the resource protocol.
-  resource/PResource
-  (release-resource [_])
-  drv/PDeviceProvider
-  (get-device [buffer]
-    (drv/get-device (default-cpu-stream)))
-  drv/PDriverProvider
-  (get-driver [buffer]
-    (-> (drv/get-device buffer)
-        drv/get-driver)))
 
 
 (def driver
@@ -300,14 +219,6 @@ Use with care; the synchonization primitives will just hang with this stream."
                (->> (range 1)
                     (mapv #(make-cpu-device (constantly retval) % error-atom))))
        retval))))
-
-
-(def default-cpu-stream
-  (memoize
-   (fn []
-     (-> (driver)
-         (compute/default-device)
-         (compute/default-stream)))))
 
 
 (registry/register-driver (driver))

@@ -22,7 +22,9 @@
                      item->typed-nio-buffer
                      all-datatypes
                      datatype->cast-fn
-                     ] :as nio-access])
+                     ] :as nio-access]
+            [tech.compute.cpu.jna-blas :as jna-blas]
+            [tech.datatype.jna :as dtype-jna])
   (:import [tech.compute.cpu.driver CPUStream]
            [java.security SecureRandom]))
 
@@ -95,12 +97,26 @@
   @(resolve 'tech.compute.cpu.tensor-math.blas/blas-fn-map))
 
 
+
+(defn- jna-blas-fn-map
+  []
+  {[:float32 :gemm] (partial jna-blas/sgemm :row-major)
+   [:float64 :gemm] (partial jna-blas/dgemm :row-major)})
+
+
 (extend-type CPUStream
   tm/TensorMath
   (assign-constant! [stream tensor value]
     (cpu-driver/with-stream-dispatch stream
-      ((get (assign-constant-map) (dtype/get-datatype tensor))
-       (->buffer tensor) (->dimensions tensor) value (ct/ecount tensor))))
+      ;;Use faster, simple fallback if available.
+      (if (and (ct/dense? tensor)
+               (ct-dims/access-increasing? (ct/tensor->dimensions tensor))
+               (= 0.0 (double value))
+               (dtype-jna/as-typed-pointer (ct/tensor->buffer tensor)))
+        ;;We have memset in this case that will outperform for even very large things.
+        (dtype/set-constant! (ct/tensor->buffer tensor) 0 value (ct/ecount tensor))
+        ((get (assign-constant-map) (dtype/get-datatype tensor))
+         (->buffer tensor) (->dimensions tensor) value (ct/ecount tensor)))))
 
   (assign! [stream dest src]
     (cpu-driver/with-stream-dispatch stream
@@ -202,12 +218,22 @@
           A a-row-count a-col-count a-colstride
           B b-col-count b-colstride
           beta]
-    (cpu-driver/with-stream-dispatch stream
-      (cmu/col->row-gemm (get-in (blas-fn-map) [(dtype/get-datatype C) :gemm])
-                         trans-a? trans-b? a-row-count a-col-count b-col-count
-                         alpha (ct/tensor->buffer A) a-colstride
-                         (ct/tensor->buffer B) b-colstride
-                         beta (ct/tensor->buffer C) c-colstride)))
+    (if (every? dtype-jna/typed-pointer? (->> [A B C]
+                                              (map ->buffer)))
+      (cpu-driver/with-stream-dispatch stream
+        ((get (jna-blas-fn-map) [(dtype/get-datatype C) :gemm])
+         trans-a? trans-b? a-row-count b-col-count a-col-count
+         alpha (ct/tensor->buffer A) a-colstride
+         (ct/tensor->buffer B) b-colstride
+         beta (ct/tensor->buffer C) c-colstride))
+
+
+      (cpu-driver/with-stream-dispatch stream
+        (cmu/col->row-gemm (get-in (blas-fn-map) [(dtype/get-datatype C) :gemm])
+                           trans-a? trans-b? a-row-count a-col-count b-col-count
+                           alpha (ct/tensor->buffer A) a-colstride
+                           (ct/tensor->buffer B) b-colstride
+                           beta (ct/tensor->buffer C) c-colstride))))
 
 
   (rand! [stream dest {:keys [type] :as distribution}]
@@ -247,9 +273,15 @@
     (dtype/->array dev-buffer)))
 
 
-(defn typed-bufferable->tensor
-  "If the typed buffer is not array backend then gemm, gemv will not work."
+(defn buffer->tensor
+  "Construct a tensor from a buffer.  It must satisfy either
+tech.datatype.jna/PToPtr or tech.datatype.java-unsigned/PToBuffer.
+Uses item datatype and shape for tensor."
   [item]
-  (let [typed-buffer (unsigned/->typed-buffer item)]
+  (let [tensor-buffer (if (satisfies? dtype-jna/PToPtr item)
+                        (or (dtype-jna/as-typed-pointer item)
+                            (dtype-jna/->typed-pointer item))
+                        (or (unsigned/as-typed-buffer item)
+                            (unsigned/->typed-buffer item)))]
     (ct/construct-tensor (ct-dims/dimensions (ct/shape item))
-                         typed-buffer)))
+                         tensor-buffer)))
