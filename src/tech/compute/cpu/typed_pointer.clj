@@ -89,9 +89,6 @@
       :partially-alias? (fn [lhs# rhs#]
                          (drv/partially-alias? (dtype-jna/->typed-pointer lhs#)
                                                rhs#))}
-     resource/PResource
-     (:release-resource (fn [item#]))
-
      drv/PDeviceProvider
      {:get-device (fn [item#]
                     (drv/get-device (dtype-jna/->typed-pointer item#)))}
