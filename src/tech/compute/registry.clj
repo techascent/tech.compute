@@ -5,6 +5,7 @@
 
 
 (def ^:dynamic *registered-drivers* (atom {}))
+(def ^:dynamic *cpu-driver-name* (atom nil))
 
 
 (defn- find-driver
@@ -30,6 +31,18 @@
   []
   (->> (keys @*registered-drivers*)
        set))
+
+
+;;The cpu driver has a special place in that it can attach to things that
+;;aren't in the ecosystem.
+(defn set-cpu-driver-name!
+  [driver-name]
+  (reset! *cpu-driver-name* driver-name))
+
+
+(defn cpu-driver-name
+  []
+  @*cpu-driver-name*)
 
 
 (defmacro current-ns->keyword

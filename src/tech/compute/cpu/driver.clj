@@ -23,8 +23,16 @@
 (set! *unchecked-math* true)
 
 
+(defprotocol PToCPUStream
+  ;;Setup so other things can masquerade as a cpu stream as long as they
+  ;;have a conversion to a CPUStream record.
+  (->cpu-stream [item]))
+
+
 (defrecord CPUDevice [driver-fn device-id error-atom default-stream])
-(defrecord CPUStream [device-fn input-chan exit-chan error-atom])
+(defrecord CPUStream [device-fn input-chan exit-chan error-atom]
+  PToCPUStream
+  (->cpu-stream [item] item))
 (defrecord CPUDriver [devices error-atom])
 
 
@@ -93,10 +101,11 @@ Use with care; the synchonization primitives will just hang with this stream."
 
 
 (defn is-main-thread-cpu-stream?
-  [^CPUStream stream]
-  (not (or (.input-chan stream)
-           (.exit-chan stream)
-           (.error-atom stream))))
+  [stream]
+  (let [^CPUStream stream (->cpu-stream stream)]
+    (not (or (.input-chan stream)
+             (.exit-chan stream)
+             (.error-atom stream)))))
 
 
 (defn is-thread-cpu-stream?
@@ -104,13 +113,18 @@ Use with care; the synchonization primitives will just hang with this stream."
   (not (is-main-thread-cpu-stream? stream)))
 
 
+(defn- check-stream-error-atom
+  [item]
+  (when-let [error-atom (:error-atom item)]
+    (let [error @error-atom]
+      (when error
+        (compare-and-set! error-atom error nil)
+        (throw error)))))
+
+
 (defn check-stream-error
-  [stream]
-  (when-let [error-atom (:error-atom stream)]
-   (let [error @error-atom]
-     (when error
-       (compare-and-set! (:error-atom stream) error nil)
-       (throw error)))))
+  [item]
+  (check-stream-error-atom (->cpu-stream item)))
 
 
 (defmacro with-stream-dispatch
@@ -118,7 +132,7 @@ Use with care; the synchonization primitives will just hang with this stream."
   `(if (is-thread-cpu-stream? ~stream)
      (do
        (check-stream-error ~stream)
-       (let [^CPUStream stream# ~stream]
+       (let [^CPUStream stream# (->cpu-stream ~stream)]
          (async/>!! (.input-chan stream#)
                     (fn [] ~@body))))
      (do
@@ -184,11 +198,11 @@ Use with care; the synchonization primitives will just hang with this stream."
   (default-stream [device] @(:default-stream device))
 
   (create-stream [impl]
-    (check-stream-error impl)
+    (check-stream-error-atom impl)
     (cpu-stream impl (:error-atom impl)))
 
   (allocate-device-buffer [impl elem-count elem-type options]
-    (check-stream-error impl)
+    (check-stream-error-atom impl)
     (make-typed-thing elem-type elem-count))
 
   (device->device-copy-compatible? [src-device dst-device] nil))
@@ -203,7 +217,7 @@ Use with care; the synchonization primitives will just hang with this stream."
     @(get impl :devices))
 
   (allocate-host-buffer [impl elem-count elem-type options]
-    (check-stream-error impl)
+    (check-stream-error-atom impl)
     (make-typed-thing elem-type elem-count)))
 
 
@@ -222,3 +236,5 @@ Use with care; the synchonization primitives will just hang with this stream."
 
 
 (registry/register-driver (driver))
+(registry/set-cpu-driver-name! (-> (driver)
+                                   drv/driver-name))

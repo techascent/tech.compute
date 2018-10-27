@@ -67,11 +67,12 @@
   (release-resource [_])
   drv/PDeviceProvider
   (get-device [buffer]
-    (-> (registry/driver :tech.compute.cpu.driver)
+    (-> (drv/get-driver buffer)
         (compute/default-device)))
   drv/PDriverProvider
   (get-driver [buffer]
-    (registry/driver :tech.compute.cpu.driver)))
+    (-> (registry/cpu-driver-name)
+        registry/driver)))
 
 
 (defmacro extend-typed-pointer-like-type
