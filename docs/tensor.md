@@ -119,7 +119,7 @@ respectively.
 
 To add a new operation one needs basically 5 steps:
 1.  Decide the keyword and the type of operation.
-2.  Add the op to the [appropriate cpu op dispatch table](../src/tech/compute/cpu/tensor_math.clj#L211)
+2.  Add the op to the [appropriate cpu op dispatch table](../src/tech/compute/cpu/tensor_math/)
 
 
 Your new operation is now setup and will work across all supported broadcast patterns and potentially all datatypes.
