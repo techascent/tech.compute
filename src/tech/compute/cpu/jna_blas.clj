@@ -5,14 +5,22 @@
   (:import [com.sun.jna Pointer Native Function NativeLibrary]))
 
 
-(def ^:private system-blas-lib
+(def ^:dynamic *system-blas-lib-name* "blas")
+
+
+(def ^:private try-load-blas
   (memoize
-   (fn []
+   (fn [libname]
      (try
-       (NativeLibrary/getInstance "blas")
+       (NativeLibrary/getInstance libname)
        (catch Throwable e
-         (println "Failed to load native blas:" e)
+         (println "Failed to load native blas:" (.getMessage e))
          nil)))))
+
+
+(defn ^:private system-blas-lib
+  []
+  (try-load-blas *system-blas-lib-name*))
 
 
 (def get-blas-fn
