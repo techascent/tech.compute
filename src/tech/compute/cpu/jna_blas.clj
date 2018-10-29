@@ -8,7 +8,11 @@
 (def ^:private system-blas-lib
   (memoize
    (fn []
-     (NativeLibrary/getInstance "blas"))))
+     (try
+       (NativeLibrary/getInstance "blas")
+       (catch Throwable e
+         (println "Failed to load native blas:" e)
+         nil)))))
 
 
 (def get-blas-fn
