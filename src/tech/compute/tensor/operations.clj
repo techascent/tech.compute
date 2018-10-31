@@ -1,6 +1,6 @@
 (ns tech.compute.tensor.operations
   "tensor operations with syntatic sugar"
-  (:refer-clojure :exclude [max min * - + > >= < <= bit-and bit-xor])
+  (:refer-clojure :exclude [max min * / - + > >= < <= bit-and bit-xor])
   (:require [clojure.core.matrix :as m]
             [tech.compute.tensor :as tensor]
             [tech.datatype.base :as dtype]))
