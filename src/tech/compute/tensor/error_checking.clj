@@ -46,13 +46,25 @@
     {}))
 
 
+(defn simple-tensor?
+  [tensor]
+  (and (tens-proto/dense? tensor)
+       (dims/access-increasing? (tens-proto/tensor->dimensions tensor))))
+
+
+(defn ensure-simple-tensor
+  [tensor]
+  (when-not-error (simple-tensor? tensor)
+    "Tensor must be 'simple' - dense, linearly increasing memory access"
+    {:tensor-dimensons (tens-proto/tensor->dimensions tensor)})
+  tensor)
+
+
 (defn memcpy-semantics?
   [dest src]
   (and (= (dtype/ecount dest) (dtype/ecount src))
-       (tens-proto/dense? dest)
-       (tens-proto/dense? src)
-       (dims/access-increasing? (tens-proto/tensor->dimensions dest))
-       (dims/access-increasing? (tens-proto/tensor->dimensions src))
+       (simple-tensor? dest)
+       (simple-tensor? src)
        (= (dtype/get-datatype dest)
           (dtype/get-datatype src))))
 

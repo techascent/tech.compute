@@ -40,6 +40,9 @@ In general we want as much error checking and analysis done in this file as oppo
             [tech.compute :as compute]
             [tech.datatype :as dtype]
             [tech.datatype.base :as dtype-base]
+            [tech.datatype.java-primitive :as primitive]
+            [tech.datatype.java-unsigned :as unsigned]
+            [tech.datatype.jna :as dtype-jna]
             [clojure.core.matrix.protocols :as mp]
             [mikera.vectorz.matrix-api]
             [clojure.core.matrix :as m]
@@ -68,6 +71,42 @@ In general we want as much error checking and analysis done in this file as oppo
 (defrecord Tensor [dimensions buffer]
   dtype-base/PDatatype
   (get-datatype [tensor] (dtype/get-datatype (:buffer tensor)))
+  dtype-base/PContainerType
+  (container-type [tensor] (dtype-base/container-type buffer))
+
+  ;;If we are simple tensor && our buffer allows it we can act like a raw datatype
+  ;;storage container.  Users can bypass the simple check by getting the buffer and
+  ;;calling the appropriate methods on the buffer directly.
+  dtype-base/PAccess
+  (set-value! [tensor idx value]
+    (error-checking/ensure-simple-tensor tensor)
+    (dtype-base/set-value! buffer idx value))
+  (set-constant! [tensor idx value n-elems]
+    (error-checking/ensure-simple-tensor tensor)
+    (dtype-base/set-constant! buffer idx value n-elems))
+  (get-value [tensor idx]
+    (error-checking/ensure-simple-tensor tensor)
+    (dtype-base/get-value buffer idx))
+  dtype-base/PCopyRawData
+  (copy-raw->item! [tensor dest dest-offset options]
+    (error-checking/ensure-simple-tensor tensor)
+    (dtype-base/copy-raw->item! buffer dest dest-offset options))
+  primitive/PToBuffer
+  (->buffer-backing-store [tensor]
+    (error-checking/ensure-simple-tensor tensor)
+    (primitive/->buffer-backing-store buffer))
+  primitive/PToArray
+  (->array [tensor]
+    (error-checking/ensure-simple-tensor tensor)
+    (primitive/->array buffer))
+  (->array-copy [tensor]
+    (error-checking/ensure-simple-tensor tensor)
+    (primitive/->array-copy buffer))
+  dtype-jna/PToPtr
+  (->ptr-backing-store [tensor]
+    (error-checking/ensure-simple-tensor tensor)
+    (dtype-jna/->ptr-backing-store buffer))
+
   compute-drv/PDeviceProvider
   (get-device [tensor] (compute/->device buffer))
   compute-drv/PDriverProvider
@@ -89,7 +128,7 @@ In general we want as much error checking and analysis done in this file as oppo
                          :shape shape})))))
   mp/PVectorView
   (as-vector [m]
-    (when (tens-proto/dense? m)
+    (when (error-checking/simple-tensor? m)
       (reinterpret-tensor m (dims/dimensions [(dtype/ecount m)]))))
 
   mp/PVectorisable
@@ -181,6 +220,12 @@ will determine the shape of the outgoing tensor."
 
 (defn tensor? [item]
   (tens-proto/tensor? item))
+
+
+(defn simple-tensor?
+  [tensor]
+  (error-checking/simple-tensor? tensor))
+
 
 (defn tensor->buffer [item]
   (tens-proto/tensor->buffer item))
