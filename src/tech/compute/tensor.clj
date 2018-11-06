@@ -186,6 +186,13 @@ In general we want as much error checking and analysis done in this file as oppo
                     {:item-type (type item)}))))
 
 
+(defn- tensor-or-number
+  [item]
+  (if (number? item)
+    item
+    (ensure-tensor item)))
+
+
 (defn reinterpret-tensor
   "Create a new tensor with new dimensions.  This is like an in place reinterpretation
   of the data."
@@ -262,12 +269,29 @@ same type back."
 
 
 (defn clone
+  "Clone this tensor, keeping as many details as possible identical.
+This method does type elision, so in most cases it will return something
+of the same type as passed in."
   [src & {:keys [datatype]
           :as options}]
   (let [dst (-> (ensure-tensor src)
                 (from-prototype :datatype datatype)
                 (mp/assign! (ensure-tensor src)))]
     (elide-type src dst)))
+
+
+(defn clone-to-device
+  "Clone this tensor, creating a new one on the currently bound device.
+Does not to type elision."
+  [src & {:keys [datatype]
+          :as options}]
+  (let [src (ensure-tensor src)
+        dst (new-tensor (dtype/shape src)
+                        :datatype (or datatype
+                                      (dtype/get-datatype src))
+                        :init-value nil
+                        :stream (:stream options))]
+    (mp/assign! dst src)))
 
 
 (defn dense? [item]
@@ -307,19 +331,19 @@ same type back."
 
 (defn as-vector
   [tensor]
-  (m/as-vector tensor))
+  (m/as-vector (ensure-tensor tensor)))
 
 (defn to-vector
   [tensor]
-  (m/to-vector tensor))
+  (m/to-vector (ensure-tensor tensor)))
 
 (defn ecount
   ^long [tensor]
-  (long (mp/element-count tensor)))
+  (long (mp/element-count (ensure-tensor tensor))))
 
 (defn assign!
   [dest src]
-  (mp/assign! (ensure-tensor dest) (ensure-tensor src))
+  (mp/assign! (ensure-tensor dest) (tensor-or-number src))
   dest)
 
 
@@ -506,13 +530,6 @@ and the rest of the dimensions being squashed into n-rows."
 
 (def unary-operations
   #{:floor :ceil :round :- :tanh :logistic :exp :sqrt :noop})
-
-
-(defn- tensor-or-number
-  [item]
-  (if (number? item)
-    item
-    (ensure-tensor item)))
 
 
 (defn unary-op!
@@ -768,8 +785,9 @@ projecting to the surface of the hypersphere like normalize does, do a <= operat
   (to-array-of-type tensor :float32))
 
 (defn to-core-matrix
-  [^Tensor tensor]
-  (let [retval (m/new-array :vectorz (shape tensor))
+  [tensor]
+  (let [tensor (ensure-tensor tensor)
+        retval (m/new-array :vectorz (shape tensor))
         double-data (mp/as-double-array retval)]
     (copy-to-java-type double-data tensor)
     retval))
