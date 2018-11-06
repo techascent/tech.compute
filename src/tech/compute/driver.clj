@@ -64,7 +64,10 @@ with each other and the main thread using events.")
     "Allocate a device buffer.  This is the generic unit of data storage used for computation.
 No options at this time.")
   (device->device-copy-compatible? [src-device dst-device]
-    "When two devices differ, it may be possible to copy from src to dest device."))
+    "When two devices differ, it may be possible to copy from src to dest device.")
+  (acceptable-device-buffer? [device item]
+    "Do whatever checks necessary to ensure that this item can be used as a device buffer
+for this device."))
 
 
 (defprotocol PBuffer

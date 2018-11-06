@@ -4,7 +4,8 @@
                                                all-combinations]]
             [tech.compute.tensor.protocols :as tens-proto]
             [tech.compute.tensor.dimensions :as dims]
-            [tech.compute :as compute]))
+            [tech.compute :as compute]
+            [tech.compute.driver :as compute-drv]))
 
 
 (defn ensure-datatypes
@@ -175,3 +176,12 @@ that rerequires the items to have the same element count."
   `(when-not-error (= 1 (count (dtype/shape ~item)))
      (format "Argument %s appears to not be a vector" ~(str item))
      {:shape (dtype/shape ~(str item))}))
+
+
+(defn acceptable-tensor-buffer?
+  [item]
+  (and (satisfies? compute-drv/PDeviceProvider item)
+       (satisfies? compute-drv/PDriverProvider item)
+       (compute-drv/acceptable-device-buffer? (-> (compute-drv/get-driver item)
+                                                  compute/default-device)
+                                              item)))

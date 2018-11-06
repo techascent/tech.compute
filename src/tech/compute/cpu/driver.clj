@@ -205,6 +205,10 @@ Use with care; the synchonization primitives will just hang with this stream."
     (check-stream-error-atom impl)
     (make-typed-thing elem-type elem-count))
 
+  (acceptable-device-buffer? [device item]
+    (and (or (dtype-jna/typed-pointer? item)
+             (unsigned/typed-buffer? item))))
+
   (device->device-copy-compatible? [src-device dst-device] nil))
 
 

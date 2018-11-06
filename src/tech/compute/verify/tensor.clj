@@ -598,7 +598,6 @@ for the cuda backend."
               (ct/shape sel-tens)))
        (is (m/equals (flatten (repeat 2 [1 2 1 2 1 2 4 5 4 5 4 5 7 8 7 8 7 8]))
                      (vec (ct/to-double-array sel-tens)))))
-
      ;;Setup a test for what we do in centerloss
      (testing "Center loss use case"
        (let [centers (ct/select mat-tens 0 (ct/->tensor [0 1 0 2 1] :datatype :int32) :all)
