@@ -39,8 +39,8 @@
           byte-size (dtype/datatype->byte-size datatype)
           offset (long offset)
           length (long length)
-          _ (when-not (<= elem-count
-                          (+ offset length))
+          _ (when-not (<= (+ offset length)
+                          elem-count)
               (throw (ex-info "Offset out of range"
                               {:elem-count elem-count
                                :offset offset

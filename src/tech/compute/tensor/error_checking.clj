@@ -4,7 +4,8 @@
                                                all-combinations]]
             [tech.compute.tensor.protocols :as tens-proto]
             [tech.compute.tensor.dimensions :as dims]
-            [tech.compute :as compute]))
+            [tech.compute :as compute]
+            [tech.compute.driver :as compute-drv]))
 
 
 (defn ensure-datatypes
@@ -46,13 +47,25 @@
     {}))
 
 
+(defn simple-tensor?
+  [tensor]
+  (and (tens-proto/dense? tensor)
+       (dims/access-increasing? (tens-proto/tensor->dimensions tensor))))
+
+
+(defn ensure-simple-tensor
+  [tensor]
+  (when-not-error (simple-tensor? tensor)
+    "Tensor must be 'simple' - dense, linearly increasing memory access"
+    {:tensor-dimensons (tens-proto/tensor->dimensions tensor)})
+  tensor)
+
+
 (defn memcpy-semantics?
   [dest src]
   (and (= (dtype/ecount dest) (dtype/ecount src))
-       (tens-proto/dense? dest)
-       (tens-proto/dense? src)
-       (dims/access-increasing? (tens-proto/tensor->dimensions dest))
-       (dims/access-increasing? (tens-proto/tensor->dimensions src))
+       (simple-tensor? dest)
+       (simple-tensor? src)
        (= (dtype/get-datatype dest)
           (dtype/get-datatype src))))
 
@@ -163,3 +176,12 @@ that rerequires the items to have the same element count."
   `(when-not-error (= 1 (count (dtype/shape ~item)))
      (format "Argument %s appears to not be a vector" ~(str item))
      {:shape (dtype/shape ~(str item))}))
+
+
+(defn acceptable-tensor-buffer?
+  [item]
+  (and (satisfies? compute-drv/PDeviceProvider item)
+       (satisfies? compute-drv/PDriverProvider item)
+       (compute-drv/acceptable-device-buffer? (-> (compute-drv/get-driver item)
+                                                  compute/default-device)
+                                              item)))

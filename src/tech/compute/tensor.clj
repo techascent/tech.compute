@@ -40,6 +40,9 @@ In general we want as much error checking and analysis done in this file as oppo
             [tech.compute :as compute]
             [tech.datatype :as dtype]
             [tech.datatype.base :as dtype-base]
+            [tech.datatype.java-primitive :as primitive]
+            [tech.datatype.java-unsigned :as unsigned]
+            [tech.datatype.jna :as dtype-jna]
             [clojure.core.matrix.protocols :as mp]
             [mikera.vectorz.matrix-api]
             [clojure.core.matrix :as m]
@@ -68,6 +71,48 @@ In general we want as much error checking and analysis done in this file as oppo
 (defrecord Tensor [dimensions buffer]
   dtype-base/PDatatype
   (get-datatype [tensor] (dtype/get-datatype (:buffer tensor)))
+  dtype-base/PContainerType
+  (container-type [tensor] (dtype-base/container-type buffer))
+
+  ;;If we are simple tensor && our buffer allows it we can act like a raw datatype
+  ;;storage container.  Users can bypass the simple check by getting the buffer and
+  ;;calling the appropriate methods on the buffer directly.
+  dtype-base/PAccess
+  (set-value! [tensor idx value]
+    (error-checking/ensure-simple-tensor tensor)
+    (dtype-base/set-value! buffer idx value))
+  (set-constant! [tensor idx value n-elems]
+    (error-checking/ensure-simple-tensor tensor)
+    (dtype-base/set-constant! buffer idx value n-elems))
+  (get-value [tensor idx]
+    (error-checking/ensure-simple-tensor tensor)
+    (dtype-base/get-value buffer idx))
+  dtype-base/PCopyRawData
+  (copy-raw->item! [tensor dest dest-offset options]
+    (error-checking/ensure-simple-tensor tensor)
+    (dtype-base/copy-raw->item! buffer dest dest-offset options))
+  dtype-base/PPrototype
+  (from-prototype [tensor datatype shape]
+    (->Tensor (dims/dimensions shape)
+              (dtype/from-prototype buffer
+                                    :datatype datatype
+                                    :shape shape)))
+  primitive/PToBuffer
+  (->buffer-backing-store [tensor]
+    (error-checking/ensure-simple-tensor tensor)
+    (primitive/->buffer-backing-store buffer))
+  primitive/PToArray
+  (->array [tensor]
+    (error-checking/ensure-simple-tensor tensor)
+    (primitive/->array buffer))
+  (->array-copy [tensor]
+    (error-checking/ensure-simple-tensor tensor)
+    (primitive/->array-copy buffer))
+  dtype-jna/PToPtr
+  (->ptr-backing-store [tensor]
+    (error-checking/ensure-simple-tensor tensor)
+    (dtype-jna/->ptr-backing-store buffer))
+
   compute-drv/PDeviceProvider
   (get-device [tensor] (compute/->device buffer))
   compute-drv/PDriverProvider
@@ -89,7 +134,7 @@ In general we want as much error checking and analysis done in this file as oppo
                          :shape shape})))))
   mp/PVectorView
   (as-vector [m]
-    (when (tens-proto/dense? m)
+    (when (error-checking/simple-tensor? m)
       (reinterpret-tensor m (dims/dimensions [(dtype/ecount m)]))))
 
   mp/PVectorisable
@@ -115,35 +160,81 @@ In general we want as much error checking and analysis done in this file as oppo
     (->Tensor dimensions buffer)))
 
 
+(defn acceptable-tensor-buffer?
+  [item]
+  (error-checking/acceptable-tensor-buffer? item))
+
+
+(defn tensor? [item]
+  (tens-proto/tensor? item))
+
+
+(defn as-tensor
+  "In-place make this a tensor."
+  [item]
+  (if (tensor? item)
+    item
+    (when (acceptable-tensor-buffer? item)
+      (construct-tensor (dims/dimensions (dtype/shape item)) item))))
+
+
+(defn ensure-tensor
+  [item]
+  (if-let [retval (as-tensor item)]
+    retval
+    (throw (ex-info "Arugment is not tensor or directly convertible to tensor"
+                    {:item-type (type item)}))))
+
+
+(defn- tensor-or-number
+  [item]
+  (if (number? item)
+    item
+    (ensure-tensor item)))
+
+
 (defn reinterpret-tensor
   "Create a new tensor with new dimensions.  This is like an in place reinterpretation
   of the data."
-  ^Tensor [^Tensor old-tensor new-dimensions]
+  ^Tensor [old-tensor new-dimensions]
   (construct-tensor new-dimensions
-                    (:buffer old-tensor)))
+                    (tens-proto/tensor->buffer
+                     (ensure-tensor old-tensor))))
 
 
 (defn ->tensor
   "Create a tensor from the data.  The shape of the data combined with the batch size
-will determine the shape of the outgoing tensor."
-  [data & {:keys [datatype unchecked? shape stream]
+will determine the shape of the outgoing tensor.  If this can be used in-place as a tenor
+buffer and is safe to call on already constructed tensors."
+  [data & {:keys [datatype unchecked? shape stream force-copy?]
            :as options}]
-  (let [stream (defaults/infer-stream options)
-        datatype (defaults/datatype datatype)
-        data-shape (or shape (dtype/shape data))
-        n-elems (long (apply * data-shape))
-        device (compute/->device stream)
-        host-buffer (compute/allocate-host-buffer
-                     (compute/->driver device)
-                     n-elems datatype)
-        dev-buffer (compute/allocate-device-buffer device n-elems datatype)
-        dimensions (dims/dimensions data-shape)]
-    (dtype/copy-raw->item! data host-buffer 0 {:unchecked? unchecked?})
-    (compute/copy-host->device host-buffer 0 dev-buffer 0 n-elems :stream stream)
-    ;;The wait here is so that we can clean up the host buffer.
-    (compute/sync-with-host stream)
-    (resource/release host-buffer)
-    (construct-tensor dimensions dev-buffer)))
+  (if (tensor? data)
+    data
+    (let [stream (defaults/infer-stream options)
+          driver (compute-drv/get-driver stream)]
+      (if (and (acceptable-tensor-buffer? data)
+               (or (not datatype)
+                   (= datatype (dtype/get-datatype data)))
+               (or (not shape)
+                   (= (apply * 1 shape)
+                      (dtype/shape data)))
+               (not force-copy?))
+        (as-tensor data)
+        (let [datatype (defaults/datatype datatype)
+              data-shape (or shape (dtype/shape data))
+              n-elems (long (apply * data-shape))
+              device (compute/->device stream)
+              host-buffer (compute/allocate-host-buffer
+                           (compute/->driver device)
+                           n-elems datatype)
+              dev-buffer (compute/allocate-device-buffer device n-elems datatype)
+              dimensions (dims/dimensions data-shape)]
+          (dtype/copy-raw->item! data host-buffer 0 {:unchecked? unchecked?})
+          (compute/copy-host->device host-buffer 0 dev-buffer 0 n-elems :stream stream)
+          ;;The wait here is so that we can clean up the host buffer.
+          (compute/sync-with-host stream)
+          (resource/release host-buffer)
+          (construct-tensor dimensions dev-buffer))))))
 
 
 (defn new-tensor
@@ -162,32 +253,69 @@ will determine the shape of the outgoing tensor."
     retval))
 
 
+(defn from-prototype
+  "New tensor just like this one (same device/driver,etc)"
+  [src & {:keys [datatype shape]}]
+  (dtype/from-prototype src :datatype datatype :shape shape))
+
+
+(defn- elide-type
+  "If we had a conversion to tensor then we should get
+same type back."
+  [src dst]
+  (if (tensor? src)
+    dst
+    (tens-proto/tensor->buffer dst)))
+
+
 (defn clone
+  "Clone this tensor, keeping as many details as possible identical.
+This method does type elision, so in most cases it will return something
+of the same type as passed in."
   [src & {:keys [datatype]
           :as options}]
-  (let [datatype (or datatype (dtype/get-datatype src))
-        stream (defaults/infer-stream options src)]
-    (-> (new-tensor (dtype/shape src)
-                    :datatype datatype
-                    :init-value nil
-                    :stream stream)
-        (mp/assign! src))))
+  (let [dst (-> (ensure-tensor src)
+                (from-prototype :datatype datatype)
+                (mp/assign! (ensure-tensor src)))]
+    (elide-type src dst)))
+
+
+(defn clone-to-device
+  "Clone this tensor, creating a new one on the currently bound device.
+Does not to type elision."
+  [src & {:keys [datatype]
+          :as options}]
+  (let [src (ensure-tensor src)
+        dst (new-tensor (dtype/shape src)
+                        :datatype (or datatype
+                                      (dtype/get-datatype src))
+                        :init-value nil
+                        :stream (:stream options))]
+    (mp/assign! dst src)))
 
 
 (defn dense? [item]
-  (tens-proto/dense? item))
+  (-> (ensure-tensor item)
+      tens-proto/dense?))
+
 
 (def strided? (complement dense?))
 
-(defn tensor? [item]
-  (tens-proto/tensor? item))
+
+(defn simple-tensor?
+  [tensor]
+  (-> (ensure-tensor tensor)
+      error-checking/simple-tensor?))
+
 
 (defn tensor->buffer [item]
-  (tens-proto/tensor->buffer item))
+  (-> (ensure-tensor item)
+      tens-proto/tensor->buffer))
 
 (defn tensor->dimensions
   [item]
-  (tens-proto/tensor->dimensions item))
+  (-> (ensure-tensor item)
+      tens-proto/tensor->dimensions))
 
 ;;Tensor functions that rely on global protocols.
 (defn scalar?
@@ -203,19 +331,19 @@ will determine the shape of the outgoing tensor."
 
 (defn as-vector
   [tensor]
-  (m/as-vector tensor))
+  (m/as-vector (ensure-tensor tensor)))
 
 (defn to-vector
   [tensor]
-  (m/to-vector tensor))
+  (m/to-vector (ensure-tensor tensor)))
 
 (defn ecount
   ^long [tensor]
-  (long (mp/element-count tensor)))
+  (long (mp/element-count (ensure-tensor tensor))))
 
 (defn assign!
   [dest src]
-  (mp/assign! dest src)
+  (mp/assign! (ensure-tensor dest) (tensor-or-number src))
   dest)
 
 
@@ -230,34 +358,34 @@ will determine the shape of the outgoing tensor."
 
 
 (defn- tensor->column-stride
-  ^long [^Tensor tensor]
+  ^long [tensor]
   (dims/dimensions->column-stride
    (tensor->dimensions tensor)))
 
 
 (defn- tensor->num-columns
-  ^long [^Tensor tensor]
+  ^long [tensor]
   (dimensions->num-columns
    (tensor->dimensions tensor)))
 
 
 (defn- tensor->device
-  [^Tensor tensor]
-  (compute/->device tensor))
+  [tensor]
+  (compute/->device (ensure-tensor tensor)))
 
 
 (defn tensor->buffer
-  [^Tensor tensor]
-  (.buffer tensor))
+  [tensor]
+  (tens-proto/tensor->buffer (ensure-tensor tensor)))
 
 
 (defn tensor->2d-shape
-  [^Tensor tensor]
+  [tensor]
   (dims/->2d-shape (tensor->dimensions tensor)))
 
 
 (defn tensor->batch-shape
-  [^Tensor tensor]
+  [tensor]
   (dims/->batch-shape (tensor->dimensions tensor)))
 
 
@@ -269,7 +397,7 @@ will determine the shape of the outgoing tensor."
 
 
 (defn as-column-vector
-  [^Tensor tensor]
+  [tensor]
   (when-not-error (or (= 1 (tensor->num-columns tensor))
                       (dense? tensor))
     "Column vectors must either be dense or have num-columns = 1"
@@ -278,7 +406,7 @@ will determine the shape of the outgoing tensor."
   (reinterpret-tensor tensor (dims/dimensions [(ecount tensor) 1])))
 
 (defn as-row-vector
-  [^Tensor tensor]
+  [tensor]
   (when-not-error (or (= 1 (tensor->num-columns tensor))
                       (dense? tensor))
     "Row vectors must either be dense or have num-columns = 1"
@@ -288,20 +416,20 @@ will determine the shape of the outgoing tensor."
 
 
 (defn tensor->batch-size
-  ^long [^Tensor tensor]
+  ^long [tensor]
   (dims/->least-rapidly-changing-dimension
    (tensor->dimensions tensor)))
 
 
 (defn as-batch-matrix
   "As a 2d matrix of shape [least-rapidly-changing-dimension everything-else]"
-  ^Tensor [^Tensor tensor]
+  ^Tensor [tensor]
   (in-place-reshape tensor (tensor->batch-shape tensor)))
 
 
 (defn as-2d-matrix
   "As a 2d matrix of shape [everything-else most-rapidly-changin-dimension]"
-  ^Tensor [^Tensor tensor]
+  ^Tensor [tensor]
   (in-place-reshape tensor (tensor->2d-shape tensor)))
 
 
@@ -310,7 +438,7 @@ will determine the shape of the outgoing tensor."
   actually 2 conditions are checked:
 1.  dense?
 2.  dimensions-monotonic-increasing"
-  ^Tensor [tensor]
+  [tensor]
   (when (and (dense? tensor)
              (dims/access-increasing?
               (tensor->dimensions tensor)))
@@ -318,13 +446,9 @@ will determine the shape of the outgoing tensor."
 
 
 (defn make-dense
-  ^Tensor [^Tensor tensor]
+  [tensor]
   (or (as-dense tensor)
-      (let [^Tensor retval (new-tensor (shape tensor)
-                                       :datatype (dtype/get-datatype tensor)
-                                       :init-value nil)]
-        (mp/assign! retval tensor)
-        retval)))
+      (clone tensor)))
 
 
 (defn transpose
@@ -336,8 +460,9 @@ will determine the shape of the outgoing tensor."
 
   is the identity operation."
   [tensor reorder-vec]
-  (assoc tensor :dimensions (dims/transpose (tensor->dimensions tensor)
-                                            reorder-vec)))
+  (-> (ensure-tensor tensor)
+      (assoc :dimensions (dims/transpose (tensor->dimensions tensor)
+                                         reorder-vec))))
 
 
 (defn select
@@ -349,19 +474,18 @@ to add complexity there.  There must be an entry for every dimension of the tens
 see:
 https://cloojure.github.io/doc/core.matrix/clojure.core.matrix.html#var-select"
   [tensor & args]
-  (let [select-result (apply dims/select (tensor->dimensions tensor) args)
+  (let [tensor (ensure-tensor tensor)
+        select-result (apply dims/select (tensor->dimensions tensor) args)
         {:keys [dimensions elem-offset]} select-result
         tens-buffer (tens-proto/tensor->buffer tensor)
         new-buffer (compute/sub-buffer tens-buffer elem-offset
                                        (- (dtype/ecount tens-buffer)
                                           (long elem-offset)))]
-    (assoc tensor
-           :buffer new-buffer
-           :dimensions dimensions)))
+    (construct-tensor dimensions new-buffer)))
 
 
 (defn subvector
-  ^Tensor [^Tensor tensor offset & {:keys [length]}]
+  [tensor offset & {:keys [length]}]
   (when-not-error (>= (long offset) 0)
     "Offset must be >= 0"
     {:offset offset})
@@ -373,29 +497,32 @@ https://cloojure.github.io/doc/core.matrix/clojure.core.matrix.html#var-select"
 (defn submatrix
   "Create a sub matrix of tensor.  Tensor will be interpreted as width being n-cols
 and the rest of the dimensions being squashed into n-rows."
-  ^Tensor [^Tensor tensor row-start row-length col-start col-length]
-  (when-not-error (= 2 (count (shape tensor)))
-    "Tensor is not a 2d matrix"
-    {:tensor-shape (shape tensor)})
-  (select tensor
-          (range row-start (+ (long row-start) (long row-length)))
-          (range col-start (+ (long col-start) (long col-length)))))
+  [tensor row-start row-length col-start col-length]
+  (let [tensor (ensure-tensor tensor)]
+    (when-not-error (= 2 (count (shape tensor)))
+      "Tensor is not a 2d matrix"
+      {:tensor-shape (shape tensor)})
+    (select tensor
+            (range row-start (+ (long row-start) (long row-length)))
+            (range col-start (+ (long col-start) (long col-length))))))
 
 
 
 (defn rows
   "Returns a vector rows of dense vectors."
-  [^Tensor tensor]
-  (let [[n-rows n-cols] (tensor->2d-shape tensor)]
-    (map (fn [row-idx]
-           (select tensor row-idx (range n-cols)))
-         (range n-rows))))
+  [tensor]
+  (let [tensor (ensure-tensor tensor)]
+    (let [[n-rows n-cols] (tensor->2d-shape tensor)]
+      (map (fn [row-idx]
+             (select tensor row-idx (range n-cols)))
+           (range n-rows)))))
 
 
 (defn columns
   "Returns a vector of matrixes with width of 1 but large column strides."
-  [^Tensor tensor]
-  (let [[n-rows n-cols] (tensor->2d-shape tensor)]
+  [tensor]
+  (let [tensor (ensure-tensor tensor)
+        [n-rows n-cols] (tensor->2d-shape tensor)]
     (map (fn [col-idx]
            (select tensor (range n-rows) col-idx))
          (range n-cols))))
@@ -407,8 +534,10 @@ and the rest of the dimensions being squashed into n-rows."
 
 (defn unary-op!
   "dest[idx] = op(alpha * x)"
-  ^Tensor [dest alpha x op & [options]]
-  (details/unary-op! dest alpha x op options))
+  [dest alpha x op & [options]]
+  (details/unary-op! (ensure-tensor dest) alpha
+                     (tensor-or-number x) op options)
+  dest)
 
 
 (def binary-operations
@@ -420,8 +549,11 @@ and the rest of the dimensions being squashed into n-rows."
 dest = alpha * x op beta * y.
 x or y may be a scalar, dest must not be.
 Datatypes must match."
-  ^Tensor [dest alpha x beta y op & [options]]
-  (details/binary-op! dest alpha x beta y op options))
+  [dest alpha x beta y op & [options]]
+  (details/binary-op! (ensure-tensor dest) alpha
+                      (tensor-or-number x) beta
+                      (tensor-or-number y) op options)
+  dest)
 
 
 (def ternary-operations
@@ -439,7 +571,11 @@ Datatypes must match."
   operations:
   select: dest = (if (>= x 0) y z)"
   [dest alpha x beta y gamma z op & [options]]
-  (details/ternary-op! dest alpha x beta y gamma z op options))
+  (details/ternary-op! (ensure-tensor dest)
+                       alpha (tensor-or-number x)
+                       beta (tensor-or-number y)
+                       gamma (tensor-or-number z) op options)
+  dest)
 
 
 (def unary-reduction-operations
@@ -453,63 +589,66 @@ Output must be a [xyz 1] tensor while input is an [xyz n] tensor;
 the reduction will occur across the n axis with the results placed in output.
 The leading dimensions of both vectors must match."
   [output alpha input op & [options]]
-  (details/unary-reduce! output alpha input op options))
+  (details/unary-reduce! (ensure-tensor output) alpha
+                         (tensor-or-number input) op options))
 
 
 (defn gemm!
   "C = alpha * (trans-a? A) * (trans-b? B) + beta * C."
   ^Tensor [C trans-a? trans-b? alpha A B beta & [options]]
-  (error-checking/external-library-check! "gemm!" C A B)
-  (error-checking/ensure-matrix C)
-  (error-checking/ensure-matrix A)
-  (error-checking/ensure-matrix B)
+  (let [C (ensure-tensor C)
+        A (ensure-tensor A)
+        B (ensure-tensor B)]
+    (error-checking/external-library-check! "gemm!" C A B)
+    (error-checking/ensure-matrix C)
+    (error-checking/ensure-matrix A)
+    (error-checking/ensure-matrix B)
+    (let [A-dims (tensor->dimensions A)
+          B-dims (tensor->dimensions B)
+          C-dims (tensor->dimensions C)
+          a-in-place-trans? (not (dims/access-increasing? A-dims))
+          b-in-place-trans? (not (dims/access-increasing? B-dims))
+          trans-a? (if a-in-place-trans? (not trans-a?) trans-a?)
+          trans-b? (if b-in-place-trans? (not trans-b?) trans-b?)
+          A (if a-in-place-trans? (transpose A [1 0]) A)
+          B (if b-in-place-trans? (transpose B [1 0]) B)
+          A-dims (tensor->dimensions A)
+          B-dims (tensor->dimensions B)
+          [a-row-count a-col-count :as a-shape] (dims/trans-2d-shape trans-a? A-dims)
+          [b-row-count b-col-count :as b-shape] (dims/trans-2d-shape trans-b? B-dims)
+          [c-row-count c-col-count :as c-shape] (dims/->2d-shape C-dims)
+          a-row-count (long a-row-count)
+          a-col-count (long a-col-count)
+          b-row-count (long b-row-count)
+          b-col-count (long b-col-count)
+          c-row-count (long c-row-count)
+          c-col-count (long c-col-count)]
+      (when-not-error (every? #(= 1 (dims/matrix-element-stride %))
+                              [A-dims B-dims C-dims])
+        "Element strides must be 1 for gemm"
+        {:element-strides (mapv dims/matrix-element-stride [A-dims B-dims C-dims])})
+      (when-not-error (dims/access-increasing? C-dims)
+        "C cannot be in-place-transposed."
+        {:c-dims C-dims})
 
-  (let [A-dims (tensor->dimensions A)
-        B-dims (tensor->dimensions B)
-        C-dims (tensor->dimensions C)
-        a-in-place-trans? (not (dims/access-increasing? A-dims))
-        b-in-place-trans? (not (dims/access-increasing? B-dims))
-        trans-a? (if a-in-place-trans? (not trans-a?) trans-a?)
-        trans-b? (if b-in-place-trans? (not trans-b?) trans-b?)
-        A (if a-in-place-trans? (transpose A [1 0]) A)
-        B (if b-in-place-trans? (transpose B [1 0]) B)
-        A-dims (tensor->dimensions A)
-        B-dims (tensor->dimensions B)
-        [a-row-count a-col-count :as a-shape] (dims/trans-2d-shape trans-a? A-dims)
-        [b-row-count b-col-count :as b-shape] (dims/trans-2d-shape trans-b? B-dims)
-        [c-row-count c-col-count :as c-shape] (dims/->2d-shape C-dims)
-        a-row-count (long a-row-count)
-        a-col-count (long a-col-count)
-        b-row-count (long b-row-count)
-        b-col-count (long b-col-count)
-        c-row-count (long c-row-count)
-        c-col-count (long c-col-count)]
-    (when-not-error (every? #(= 1 (dims/matrix-element-stride %))
-                            [A-dims B-dims C-dims])
-      "Element strides must be 1 for gemm"
-      {:element-strides (mapv dims/matrix-element-stride [A-dims B-dims C-dims])})
-    (when-not-error (dims/access-increasing? C-dims)
-      "C cannot be in-place-transposed."
-      {:c-dims C-dims})
-
-    (when-not-error (= a-col-count b-row-count)
-      (format "A %s col count doesn't match B %s row count" a-shape b-shape)
-      {:a-shape a-shape
-       :b-shape b-shape})
-    (when-not-error (= a-row-count c-row-count)
-      (format "C %s row count doesn't match A %s row count" c-shape a-shape)
-      {:a-shape a-shape
-       :c-shape c-shape})
-    (when-not-error (= b-col-count c-col-count)
-      (format "C %s col count doesn't match B %s col count" c-shape b-shape)
-      {:b-shape b-shape
-       :c-shape c-shape})
-    (tm/gemm! (defaults/infer-stream options C)
-              C (dims/matrix-column-stride C-dims)
-              trans-a? trans-b? alpha
-              A a-row-count a-col-count (dims/matrix-column-stride A-dims)
-              B b-col-count (dims/matrix-column-stride B-dims)
-              beta))
+      (when-not-error (= a-col-count b-row-count)
+        (format "A %s col count doesn't match B %s row count" a-shape b-shape)
+        {:a-shape a-shape
+         :b-shape b-shape})
+      (when-not-error (= a-row-count c-row-count)
+        (format "C %s row count doesn't match A %s row count" c-shape a-shape)
+        {:a-shape a-shape
+         :c-shape c-shape})
+      (when-not-error (= b-col-count c-col-count)
+        (format "C %s col count doesn't match B %s col count" c-shape b-shape)
+        {:b-shape b-shape
+         :c-shape c-shape})
+      (tm/gemm! (defaults/infer-stream options C)
+                C (dims/matrix-column-stride C-dims)
+                trans-a? trans-b? alpha
+                A a-row-count a-col-count (dims/matrix-column-stride A-dims)
+                B b-col-count (dims/matrix-column-stride B-dims)
+                beta)))
   C)
 
 
@@ -552,16 +691,17 @@ Flat (equal) distribution including minimum but excluding maximum
 (defn rand!
   "Generate a pool of random numbers.
 Due to cuda limitations, this function is limited to floating point numbers."
-  ^Tensor [dest distribution & {:as options}]
-  (when-not-error (= :float32 (get-datatype dest))
-    "Can only generate rands into floating point buffers"
-    {:expected-datatype :float32
-     :received-datatype (get-datatype dest)})
-  (when-not-error (and (dense? dest)
-                       (dims/access-increasing? (tensor->dimensions dest)))
-    "Rand generation must have simple dense buffers" {})
-  (valid-distribution? distribution)
-  (tm/rand! (defaults/infer-stream options dest) dest distribution)
+  [dest distribution & {:as options}]
+  (let [dest (ensure-tensor dest)]
+    (when-not-error (= :float32 (get-datatype dest))
+      "Can only generate rands into floating point buffers"
+      {:expected-datatype :float32
+       :received-datatype (get-datatype dest)})
+    (when-not-error (and (dense? dest)
+                         (dims/access-increasing? (tensor->dimensions dest)))
+      "Rand generation must have simple dense buffers" {})
+    (valid-distribution? distribution)
+    (tm/rand! (defaults/infer-stream options dest) dest distribution))
   dest)
 
 
@@ -645,8 +785,9 @@ projecting to the surface of the hypersphere like normalize does, do a <= operat
   (to-array-of-type tensor :float32))
 
 (defn to-core-matrix
-  [^Tensor tensor]
-  (let [retval (m/new-array :vectorz (shape tensor))
+  [tensor]
+  (let [tensor (ensure-tensor tensor)
+        retval (m/new-array :vectorz (shape tensor))
         double-data (mp/as-double-array retval)]
     (copy-to-java-type double-data tensor)
     retval))

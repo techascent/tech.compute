@@ -262,11 +262,6 @@
         (throw (Exception. (str "Unrecognized distribution: " distribution)))))))
 
 
-(defn as-tensor
-  [java-array]
-  (ct/construct-tensor (ct-dims/dimensions [(ct/ecount java-array)])
-                       (unsigned/->typed-buffer java-array)))
-
 
 (defn as-java-array
   [cpu-tensor]
@@ -287,3 +282,10 @@ Uses item datatype and shape for tensor."
                             (unsigned/->typed-buffer item)))]
     (ct/construct-tensor (ct-dims/dimensions (ct/shape item))
                          tensor-buffer)))
+
+
+(defn as-tensor
+  [item]
+  (if (ct/tensor? item)
+    item
+    (buffer->tensor item)))

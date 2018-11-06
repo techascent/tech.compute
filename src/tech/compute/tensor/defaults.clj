@@ -1,7 +1,8 @@
 (ns tech.compute.tensor.defaults
   (:require [tech.compute :as compute]
             [tech.datatype :as dtype]
-            [tech.compute.tensor.protocols :as tens-proto]))
+            [tech.compute.tensor.protocols :as tens-proto]
+            [tech.compute.registry :as registry]))
 
 
 ;;In order to take arbitrary clojure datastructures and create a tensor
@@ -36,7 +37,12 @@
                            (filter tens-proto/tensor?)
                            (map (comp compute/default-stream
                                       compute/->device))
-                           first))]
+                           first)
+                      ;;Lastly, use the currently bound cpu driver
+                      (when-let [driver-name (registry/cpu-driver-name)]
+                        (-> (registry/driver driver-name)
+                            compute/default-device
+                            compute/default-stream)))]
     retval
     (throw (ex-info "Stream is unset and no tensor arguments found."
                     {}))))
