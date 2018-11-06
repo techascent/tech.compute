@@ -121,7 +121,8 @@ that rerequires the items to have the same element count."
         (->> args
              (map #(tens-proto/tensor->buffer %))
              all-combinations
-             (filter #(apply compute/partially-alias? %))
+             (filter #(and (apply same-device? %)
+                           (apply compute/partially-alias? %)))
              seq)]
     (when-not-error (nil? partially-overlapping-args)
       "Partially overlapping arguments detected."
