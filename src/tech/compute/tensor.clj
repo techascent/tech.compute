@@ -391,7 +391,7 @@ Does not to type elision."
 
 (defn in-place-reshape
   [tensor shape]
-  (assoc tensor
+  (assoc (ensure-tensor tensor)
          :dimensions (dims/in-place-reshape (tensor->dimensions tensor)
                                             shape)))
 
