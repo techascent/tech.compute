@@ -37,64 +37,79 @@
 (defn- ->dimensions
   [tensor] (ct/tensor->dimensions tensor))
 
-(defn- assign-constant-map
-  []
-  (require '[tech.compute.cpu.tensor-math.assignment])
-  @(resolve 'tech.compute.cpu.tensor-math.assignment/assign-constant-map))
+
+(def ^:private lock-object (Object.))
 
 
-(defn- assign!-map
-  []
-  (require '[tech.compute.cpu.tensor-math.assignment])
-  @(resolve 'tech.compute.cpu.tensor-math.assignment/assign!-map))
+(defmacro ^:private threadsafe-constant
+  [& body]
+  `(memoize
+    (fn []
+      ;;There is no guarantee that require or resolve, called in many threads at once
+      ;;return what you think they might.  So we ensure exactly one thread at a time in
+      ;;this code.
+      (locking lock-object
+        ~@body))))
 
 
-(defn- unary-op-table
-  []
-  (require '[tech.compute.cpu.tensor-math.unary-op])
-  @(resolve 'tech.compute.cpu.tensor-math.unary-op/unary-op-table))
+(def assign-constant-map
+  (threadsafe-constant
+   (require '[tech.compute.cpu.tensor-math.assignment])
+   @(resolve 'tech.compute.cpu.tensor-math.assignment/assign-constant-map)))
 
 
-(defn- binary-accum-constant-table
-  []
-  (require '[tech.compute.cpu.tensor-math.binary-accum])
-  @(resolve 'tech.compute.cpu.tensor-math.binary-accum/binary-accum-constant-table))
+(def assign!-map
+  (threadsafe-constant
+   (require '[tech.compute.cpu.tensor-math.assignment])
+   @(resolve 'tech.compute.cpu.tensor-math.assignment/assign!-map)))
 
 
-(defn- binary-accum-table
-  []
-  (require '[tech.compute.cpu.tensor-math.binary-accum])
-  @(resolve 'tech.compute.cpu.tensor-math.binary-accum/binary-accum-table))
+(def unary-op-table
+  (threadsafe-constant
+   (require '[tech.compute.cpu.tensor-math.unary-op])
+   @(resolve 'tech.compute.cpu.tensor-math.unary-op/unary-op-table)))
 
 
-(defn- binary-op-constant-table
-  []
-  (require '[tech.compute.cpu.tensor-math.binary-op])
-  @(resolve 'tech.compute.cpu.tensor-math.binary-op/binary-op-constant-table))
+(def binary-accum-constant-table
+  (threadsafe-constant
+   (require '[tech.compute.cpu.tensor-math.binary-accum])
+   @(resolve 'tech.compute.cpu.tensor-math.binary-accum/binary-accum-constant-table)))
 
 
-(defn- binary-op-table
-  []
-  (require '[tech.compute.cpu.tensor-math.binary-op])
-  @(resolve 'tech.compute.cpu.tensor-math.binary-op/binary-op-table))
+(def binary-accum-table
+  (threadsafe-constant
+   (require '[tech.compute.cpu.tensor-math.binary-accum])
+   @(resolve 'tech.compute.cpu.tensor-math.binary-accum/binary-accum-table)))
 
 
-(defn- ternary-op-table
-  []
-  (require '[tech.compute.cpu.tensor-math.ternary-op])
-  @(resolve 'tech.compute.cpu.tensor-math.ternary-op/ternary-op-table))
+(def binary-op-constant-table
+  (threadsafe-constant
+   (require '[tech.compute.cpu.tensor-math.binary-op])
+   @(resolve 'tech.compute.cpu.tensor-math.binary-op/binary-op-constant-table)))
 
 
-(defn- unary-reduce-table
-  []
-  (require '[tech.compute.cpu.tensor-math.unary-reduce])
-  @(resolve 'tech.compute.cpu.tensor-math.unary-reduce/unary-reduce-table))
+(def binary-op-table
+  (threadsafe-constant
+   (require '[tech.compute.cpu.tensor-math.binary-op])
+   @(resolve 'tech.compute.cpu.tensor-math.binary-op/binary-op-table)))
 
 
-(defn- blas-fn-map
-  []
-  (require '[tech.compute.cpu.tensor-math.blas])
-  @(resolve 'tech.compute.cpu.tensor-math.blas/blas-fn-map))
+(def ternary-op-table
+  (threadsafe-constant
+   (require '[tech.compute.cpu.tensor-math.ternary-op])
+   @(resolve 'tech.compute.cpu.tensor-math.ternary-op/ternary-op-table)))
+
+
+(def unary-reduce-table
+  (threadsafe-constant
+   (require '[tech.compute.cpu.tensor-math.unary-reduce])
+   @(resolve 'tech.compute.cpu.tensor-math.unary-reduce/unary-reduce-table)))
+
+
+(def blas-fn-map
+  (threadsafe-constant
+   (require '[tech.compute.cpu.tensor-math.blas])
+   @(resolve 'tech.compute.cpu.tensor-math.blas/blas-fn-map)))
 
 
 
