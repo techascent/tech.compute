@@ -110,9 +110,9 @@
       :alias? (fn [lhs# rhs#]
                 (drv/alias? (unsigned/->typed-buffer lhs#)
                             (unsigned/->typed-buffer rhs#)))
-      :partially-alias (fn [lhs# rhs#]
-                         (drv/partially-alias? (unsigned/->typed-buffer lhs#)
-                                               (unsigned/->typed-buffer rhs#)))}
+      :partially-alias? (fn [lhs# rhs#]
+                          (drv/partially-alias? (unsigned/->typed-buffer lhs#)
+                                                (unsigned/->typed-buffer rhs#)))}
      resource/PResource
      (:release-resource (fn [item#]))
 

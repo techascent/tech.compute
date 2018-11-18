@@ -124,6 +124,16 @@
   (testing "Test that the different buffer types of the cpu backend can interact reasonably"
     (is (= [1 2 3]
            (-> (dtype/make-array-of-type :int16 [1 2 3])
-               cpu-tm/buffer->tensor
                ct/clone
                (ct/to-jvm :datatype :int32))))))
+
+
+(deftest raw-array-ops
+  (testing "Test that raw arrays can be tensors and that raw arrays are returned from basic ops"
+    (let [test-tens (dtype/make-array-of-type :int16 [1 2 3])
+          next-tens (dtype/make-array-of-type :int32 3)
+          assign-result (ct/assign! next-tens test-tens)]
+      (is (instance? (Class/forName "[I") assign-result))
+      (is (instance? (Class/forName "[I") (ct/clone assign-result)))
+      (is (instance? (Class/forName "[S") (ct/unary-op! test-tens 1.0 test-tens :ceil)))
+      (is (instance? (Class/forName "[I") (ct/binary-op! assign-result 1.0 assign-result 1.0 next-tens :+))))))
