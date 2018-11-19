@@ -1,10 +1,10 @@
 (ns tech.compute.cpu.typed-pointer
   (:require [tech.datatype.jna :as dtype-jna]
+            [tech.jna :as jna]
             [tech.compute.driver :as drv]
             [tech.compute :as compute]
             [tech.datatype :as dtype]
             [tech.compute.cpu.utils :as cpu-utils]
-            [tech.resource :as resource]
             [tech.compute.registry :as registry]
             [tech.datatype.javacpp :as jcpp-dtype])
   (:import [tech.datatype.jna TypedPointer]
@@ -19,15 +19,13 @@
 
 (defn- thing->addr
   ^long [item]
-  (-> (dtype-jna/->ptr-backing-store item)
+  (-> (jna/->ptr-backing-store item)
       dtype-jna/pointer->address))
 
 
 (defn maybe->typed-pointer
   [item]
-  (if (satisfies? dtype-jna/PToPtr item)
-    (or (dtype-jna/as-typed-pointer item)
-        (dtype-jna/->typed-pointer item))))
+  (dtype-jna/as-typed-pointer item))
 
 
 (extend-type TypedPointer
@@ -62,9 +60,6 @@
             rhs-addr (thing->addr rhs)]
         (cpu-utils/in-range? lhs-addr (dtype/ecount lhs)
                              rhs-addr (dtype/ecount rhs)))))
-  ;;For uniformity all host/device buffers must implement the resource protocol.
-  resource/PResource
-  (release-resource [_])
   drv/PDeviceProvider
   (get-device [buffer]
     (-> (drv/get-driver buffer)

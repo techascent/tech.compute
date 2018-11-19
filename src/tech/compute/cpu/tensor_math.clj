@@ -24,7 +24,8 @@
                      datatype->cast-fn
                      ] :as nio-access]
             [tech.compute.cpu.jna-blas :as jna-blas]
-            [tech.datatype.jna :as dtype-jna])
+            [tech.datatype.jna :as dtype-jna]
+            [tech.compute.cpu.jna-blas :as jna-blas])
   (:import [tech.compute.cpu.driver CPUStream]
            [java.security SecureRandom]))
 
@@ -37,71 +38,85 @@
 (defn- ->dimensions
   [tensor] (ct/tensor->dimensions tensor))
 
-(defn- assign-constant-map
-  []
-  (require '[tech.compute.cpu.tensor-math.assignment])
-  @(resolve 'tech.compute.cpu.tensor-math.assignment/assign-constant-map))
+
+(def ^:private lock-object (Object.))
 
 
-(defn- assign!-map
-  []
-  (require '[tech.compute.cpu.tensor-math.assignment])
-  @(resolve 'tech.compute.cpu.tensor-math.assignment/assign!-map))
+(defmacro ^:private threadsafe-constant
+  [& body]
+  `(memoize
+    (fn []
+      ;;There is no guarantee that require or resolve, called in many threads at once
+      ;;return what you think they might.  So we ensure exactly one thread at a time in
+      ;;this code.
+      (locking lock-object
+        ~@body))))
 
 
-(defn- unary-op-table
-  []
-  (require '[tech.compute.cpu.tensor-math.unary-op])
-  @(resolve 'tech.compute.cpu.tensor-math.unary-op/unary-op-table))
+(def assign-constant-map
+  (threadsafe-constant
+   (require '[tech.compute.cpu.tensor-math.assignment])
+   @(resolve 'tech.compute.cpu.tensor-math.assignment/assign-constant-map)))
 
 
-(defn- binary-accum-constant-table
-  []
-  (require '[tech.compute.cpu.tensor-math.binary-accum])
-  @(resolve 'tech.compute.cpu.tensor-math.binary-accum/binary-accum-constant-table))
+(def assign!-map
+  (threadsafe-constant
+   (require '[tech.compute.cpu.tensor-math.assignment])
+   @(resolve 'tech.compute.cpu.tensor-math.assignment/assign!-map)))
 
 
-(defn- binary-accum-table
-  []
-  (require '[tech.compute.cpu.tensor-math.binary-accum])
-  @(resolve 'tech.compute.cpu.tensor-math.binary-accum/binary-accum-table))
+(def unary-op-table
+  (threadsafe-constant
+   (require '[tech.compute.cpu.tensor-math.unary-op])
+   @(resolve 'tech.compute.cpu.tensor-math.unary-op/unary-op-table)))
 
 
-(defn- binary-op-constant-table
-  []
-  (require '[tech.compute.cpu.tensor-math.binary-op])
-  @(resolve 'tech.compute.cpu.tensor-math.binary-op/binary-op-constant-table))
+(def binary-accum-constant-table
+  (threadsafe-constant
+   (require '[tech.compute.cpu.tensor-math.binary-accum])
+   @(resolve 'tech.compute.cpu.tensor-math.binary-accum/binary-accum-constant-table)))
 
 
-(defn- binary-op-table
-  []
-  (require '[tech.compute.cpu.tensor-math.binary-op])
-  @(resolve 'tech.compute.cpu.tensor-math.binary-op/binary-op-table))
+(def binary-accum-table
+  (threadsafe-constant
+   (require '[tech.compute.cpu.tensor-math.binary-accum])
+   @(resolve 'tech.compute.cpu.tensor-math.binary-accum/binary-accum-table)))
 
 
-(defn- ternary-op-table
-  []
-  (require '[tech.compute.cpu.tensor-math.ternary-op])
-  @(resolve 'tech.compute.cpu.tensor-math.ternary-op/ternary-op-table))
+(def binary-op-constant-table
+  (threadsafe-constant
+   (require '[tech.compute.cpu.tensor-math.binary-op])
+   @(resolve 'tech.compute.cpu.tensor-math.binary-op/binary-op-constant-table)))
 
 
-(defn- unary-reduce-table
-  []
-  (require '[tech.compute.cpu.tensor-math.unary-reduce])
-  @(resolve 'tech.compute.cpu.tensor-math.unary-reduce/unary-reduce-table))
+(def binary-op-table
+  (threadsafe-constant
+   (require '[tech.compute.cpu.tensor-math.binary-op])
+   @(resolve 'tech.compute.cpu.tensor-math.binary-op/binary-op-table)))
 
 
-(defn- blas-fn-map
-  []
-  (require '[tech.compute.cpu.tensor-math.blas])
-  @(resolve 'tech.compute.cpu.tensor-math.blas/blas-fn-map))
+(def ternary-op-table
+  (threadsafe-constant
+   (require '[tech.compute.cpu.tensor-math.ternary-op])
+   @(resolve 'tech.compute.cpu.tensor-math.ternary-op/ternary-op-table)))
 
+
+(def unary-reduce-table
+  (threadsafe-constant
+   (require '[tech.compute.cpu.tensor-math.unary-reduce])
+   @(resolve 'tech.compute.cpu.tensor-math.unary-reduce/unary-reduce-table)))
+
+
+(def blas-fn-map
+  (threadsafe-constant
+   (require '[tech.compute.cpu.tensor-math.blas])
+   @(resolve 'tech.compute.cpu.tensor-math.blas/blas-fn-map)))
 
 
 (defn- jna-blas-fn-map
   []
-  {[:float32 :gemm] (partial jna-blas/sgemm :row-major)
-   [:float64 :gemm] (partial jna-blas/dgemm :row-major)})
+  {[:float32 :gemm] (partial jna-blas/cblas_sgemm :row-major)
+   [:float64 :gemm] (partial jna-blas/cblas_dgemm :row-major)})
 
 
 (extend-type CPUStream
@@ -220,8 +235,7 @@
           A a-row-count a-col-count a-colstride
           B b-col-count b-colstride
           beta]
-    (if (every? dtype-jna/typed-pointer? (->> [A B C]
-                                              (map ->buffer)))
+    (if (jna-blas/has-blas?)
       (cpu-driver/with-stream-dispatch stream
         ((get (jna-blas-fn-map) [(dtype/get-datatype C) :gemm])
          trans-a? trans-b? a-row-count b-col-count a-col-count
@@ -229,7 +243,7 @@
          (ct/tensor->buffer B) b-colstride
          beta (ct/tensor->buffer C) c-colstride))
 
-
+      ;;Fallback to netlib blas if necessary
       (cpu-driver/with-stream-dispatch stream
         (cmu/col->row-gemm (get-in (blas-fn-map) [(dtype/get-datatype C) :gemm])
                            trans-a? trans-b? a-row-count a-col-count b-col-count
@@ -262,30 +276,23 @@
         (throw (Exception. (str "Unrecognized distribution: " distribution)))))))
 
 
-
 (defn as-java-array
   [cpu-tensor]
   (drv/sync-with-host (ct-defaults/infer-stream {} cpu-tensor))
-  (let [dev-buffer (ct/tensor->buffer cpu-tensor)]
-    (dtype/->array dev-buffer)))
+  (-> (ct/tensor->buffer cpu-tensor)
+      dtype/->array))
 
 
 (defn buffer->tensor
-  "Construct a tensor from a buffer.  It must satisfy either
-tech.datatype.jna/PToPtr or tech.datatype.java-unsigned/PToBuffer.
-Uses item datatype and shape for tensor."
+  "Construct a tensor from a buffer.  It must satisfy either tech.jna/PToPtr or
+  tech.datatype.java-unsigned/PToBuffer.  Uses item datatype and shape for tensor."
   [item]
-  (let [tensor-buffer (if (satisfies? dtype-jna/PToPtr item)
-                        (or (dtype-jna/as-typed-pointer item)
-                            (dtype-jna/->typed-pointer item))
-                        (or (unsigned/as-typed-buffer item)
-                            (unsigned/->typed-buffer item)))]
-    (ct/construct-tensor (ct-dims/dimensions (ct/shape item))
-                         tensor-buffer)))
-
-
-(defn as-tensor
-  [item]
-  (if (ct/tensor? item)
-    item
-    (buffer->tensor item)))
+  (if-let [auto-tensor (ct/as-tensor item)]
+    auto-tensor
+    (if-let [tensor-buffer (or (dtype-jna/as-typed-pointer item)
+                               (unsigned/as-typed-buffer item)
+                               (unsigned/->typed-buffer item))]
+      (ct/construct-tensor (ct-dims/dimensions (ct/shape item))
+                           tensor-buffer)
+      (throw (ex-info "Unable to construct a tensor or tensor-buffer from item"
+                      {:item item})))))

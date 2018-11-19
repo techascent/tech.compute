@@ -1,54 +1,43 @@
 (ns tech.compute.cpu.jna-blas
-  (:require [tech.datatype.jna :as dtype-jna]
-            [tech.datatype :as dtype]
-            [tech.compute.tensor.error-checking :as error-checking])
-  (:import [com.sun.jna Pointer Native Function NativeLibrary]))
+  (:require [tech.datatype :as dtype]
+            [tech.datatype.java-primitive :as primitive]
+            [tech.compute.tensor.error-checking :as error-checking]
+            [tech.jna :as jna]))
 
 
 (def ^:dynamic *system-blas-lib-name* "blas")
 
 
-(def ^:private try-load-blas
-  (memoize
-   (fn [libname]
-     (try
-       (NativeLibrary/getInstance libname)
-       (catch Throwable e
-         (println "Failed to load native blas:" (.getMessage e))
-         nil)))))
-
-
 (defn ^:private system-blas-lib
   []
-  (try-load-blas *system-blas-lib-name*))
+  (try
+    (jna/load-library *system-blas-lib-name*)
+    (catch Throwable e
+      (println "Failed to load native blas:" (.getMessage e))
+      nil)))
 
-
-(def get-blas-fn
-  (memoize
-   (fn [^String fn-name]
-     (when-let [system-blas (system-blas-lib)]
-       (.getFunction ^NativeLibrary system-blas fn-name)))))
+(defn has-blas?
+  []
+  (boolean (system-blas-lib)))
 
 
 (defn openblas?
   []
   (boolean
-   (get-blas-fn "openblas_get_num_threads")))
+   (when-let [system-blas (system-blas-lib)]
+     (jna/find-function "openblas_get_num_threads" *system-blas-lib-name*))))
 
 
-(defn openblas-get-num-threads
-  []
-  (let [^Function blas-fn (get-blas-fn "openblas_get_num_threads")]
-    (if blas-fn
-      (.invoke blas-fn Integer (object-array 0))
-      0)))
+(jna/def-jna-fn *system-blas-lib-name* openblas_get_num_threads
+  "Get number of openblas threads"
+  Integer)
 
 
-(defn openblas-set-num-threads
-  [num-threads]
-  (let [^Function blas-fn (get-blas-fn "openblas_set_num_threads")]
-    (when blas-fn
-      (.invoke blas-fn (object-array [(int num-threads)])))))
+(jna/def-jna-fn *system-blas-lib-name* openblas_set_num_threads
+  "Set number of openblas threads"
+  nil
+  [num-threads int])
+
 
 ;; typedef enum CBLAS_ORDER     {CblasRowMajor=101, CblasColMajor=102} CBLAS_ORDER;
 ;; typedef enum CBLAS_TRANSPOSE {CblasNoTrans=111, CblasTrans=112, CblasConjTrans=113, CblasConjNoTrans=114} CBLAS_TRANSPOSE;
@@ -64,11 +53,12 @@
    :left 141 :right 142})
 
 (defn enum-value
-  ^long [enum-name]
-  (if-let [retval (get enums enum-name)]
-    retval
-    (throw (ex-info "Failed to find enum:"
-                    {:enum-name enum-name}))))
+  [enum-name]
+  (int
+   (if-let [retval (get enums enum-name)]
+     retval
+     (throw (ex-info "Failed to find enum:"
+                     {:enum-name enum-name})))))
 
 ;; void cblas_sgemm(OPENBLAS_CONST enum CBLAS_ORDER Order,
 ;;                  OPENBLAS_CONST enum CBLAS_TRANSPOSE TransA,
@@ -76,7 +66,7 @@
 ;;                  OPENBLAS_CONST blasint M,
 ;;                  OPENBLAS_CONST blasint N,
 ;;                  OPENBLAS_CONST blasint K,
-;; 		 OPENBLAS_CONST float alpha,
+;; 		    OPENBLAS_CONST float alpha,
 ;;                  OPENBLAS_CONST float *A,
 ;;                  OPENBLAS_CONST blasint lda,
 ;;                  OPENBLAS_CONST float *B,
@@ -85,69 +75,51 @@
 ;;                  float *C, OPENBLAS_CONST blasint ldc);
 
 
-(defn has-blas?
-  []
-  (boolean
-   (get-blas-fn "cblas_sgemm")))
-
-
 (defn- ensure-blas
   []
   (when-not (has-blas?)
     (throw (ex-info "System blas is unavailable." {}))))
 
 
-(defn- ensure-blas-fn
-  [fn-name]
-  (if-let [retval (get-blas-fn fn-name)]
-    retval
-    (throw (ex-info "Blas fn not found" {:fn-name fn-name}))))
-
-
 (defn bool->blas-transpose
   [trans?]
-  (enum-value (if trans? :transpose :no-transpose)))
+  (int
+   (enum-value (if trans? :transpose :no-transpose))))
 
 
-(defn sgemm
-  [order trans-a? trans-b? M N K alpha A lda B ldb beta C ldc]
-  (ensure-blas)
-  (error-checking/ensure-datatypes :float32 A B C)
-  (when-let [blas-fn (ensure-blas-fn "cblas_sgemm")]
-    (.invoke blas-fn (object-array
-                      [(int (enum-value order))
-                       (int (bool->blas-transpose trans-a?))
-                       (int (bool->blas-transpose trans-b?))
-                       (int M)
-                       (int N)
-                       (int K)
-                       (float alpha)
-                       (dtype-jna/->ptr-backing-store A)
-                       (int lda)
-                       (dtype-jna/->ptr-backing-store B)
-                       (int ldb)
-                       (float beta)
-                       (dtype-jna/->ptr-backing-store C)
-                       (int ldc)]))))
+(jna/def-jna-fn *system-blas-lib-name* cblas_sgemm
+  "float32 gemm"
+  nil
+  [order enum-value]
+  [trans-a? bool->blas-transpose]
+  [trans-b? bool->blas-transpose]
+  [M int]
+  [N int]
+  [K int]
+  [alpha float]
+  [A primitive/ensure-ptr-like]
+  [lda int]
+  [B primitive/ensure-ptr-like]
+  [ldb int]
+  [beta float]
+  [C primitive/ensure-ptr-like]
+  [ldc int])
 
 
-(defn dgemm
-  [order trans-a? trans-b? M N K alpha A lda B ldb beta C ldc]
-  (ensure-blas)
-  (error-checking/ensure-datatypes :float64 A B C)
-  (when-let [blas-fn (ensure-blas-fn "cblas_dgemm")]
-    (.invoke blas-fn (object-array
-                      [(int (enum-value order))
-                       (int (bool->blas-transpose trans-a?))
-                       (int (bool->blas-transpose trans-b?))
-                       (int M)
-                       (int N)
-                       (int K)
-                       (double alpha)
-                       (dtype-jna/->ptr-backing-store A)
-                       (int lda)
-                       (dtype-jna/->ptr-backing-store B)
-                       (int ldb)
-                       (double beta)
-                       (dtype-jna/->ptr-backing-store C)
-                       (int ldc)]))))
+(jna/def-jna-fn *system-blas-lib-name* cblas_dgemm
+  "float64 gemm"
+  nil
+  [order enum-value]
+  [trans-a? bool->blas-transpose]
+  [trans-b? bool->blas-transpose]
+  [M int]
+  [N int]
+  [K int]
+  [alpha double]
+  [A primitive/ensure-ptr-like]
+  [lda int]
+  [B primitive/ensure-ptr-like]
+  [ldb int]
+  [beta double]
+  [C primitive/ensure-ptr-like]
+  [ldc int])

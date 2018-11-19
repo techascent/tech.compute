@@ -4,7 +4,7 @@
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.9.0"]
-                 [techascent/tech.javacpp-datatype "1.10"]
+                 [techascent/tech.javacpp-datatype "2.2"]
                  [techascent/tech.parallel "1.0"]
                  ;;Backup for if we can't load system blas.  We then do array-backed
                  ;;nio buffers and use the netlib blas (most likely a lot slower).
