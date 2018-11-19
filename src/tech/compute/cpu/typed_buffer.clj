@@ -5,7 +5,6 @@
             [tech.compute.driver :as drv]
             [tech.compute :as compute]
             [tech.compute.registry :as registry]
-            [tech.resource :as resource]
             [tech.compute.cpu.utils :as cpu-utils])
     (:import  [java.nio ByteBuffer ShortBuffer IntBuffer
                LongBuffer FloatBuffer DoubleBuffer]
@@ -87,9 +86,6 @@
            (identical? lhs-ary rhs-ary)
            (cpu-utils/in-range? (get-offset lhs) (get-length lhs)
                                 (get-offset rhs) (get-length rhs)))))
-  ;;For uniformity all host/device buffers must implement the resource protocol.
-  resource/PResource
-  (release-resource [_])
   drv/PDeviceProvider
   (get-device [buffer]
     (-> (registry/driver :tech.compute.cpu.driver)
@@ -103,7 +99,7 @@
   [java-type]
   `(clojure.core/extend
        ~java-type
-          drv/PBuffer
+     drv/PBuffer
      {:sub-buffer (fn [item# offset# len#]
                     (drv/sub-buffer (unsigned/->typed-buffer item#)
                                     offset# len#))
@@ -113,9 +109,6 @@
       :partially-alias? (fn [lhs# rhs#]
                           (drv/partially-alias? (unsigned/->typed-buffer lhs#)
                                                 (unsigned/->typed-buffer rhs#)))}
-     resource/PResource
-     (:release-resource (fn [item#]))
-
      drv/PDeviceProvider
      {:get-device (fn [item#]
                     (drv/get-device (unsigned/->typed-buffer item#)))}

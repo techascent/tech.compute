@@ -179,13 +179,15 @@ Use with care; the synchonization primitives will just hang with this stream."
     retval))
 
 
+(def ^:dynamic *default-container-fn* dtype/make-array-of-type)
+
+
 (defn- make-typed-thing
   [datatype n-elems options]
   (if (contains? options :container-fn)
     ((:container-fn options) datatype n-elems)
-    (if (= datatype
-           (unsigned/datatype->jvm-datatype datatype))
-      (dtype/make-array-of-type datatype n-elems options)
+    (if (primitive/is-jvm-datatype? datatype)
+      (*default-container-fn* datatype n-elems options)
       (unsigned/make-typed-buffer datatype n-elems))))
 
 

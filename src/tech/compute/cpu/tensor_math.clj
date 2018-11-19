@@ -24,7 +24,8 @@
                      datatype->cast-fn
                      ] :as nio-access]
             [tech.compute.cpu.jna-blas :as jna-blas]
-            [tech.datatype.jna :as dtype-jna])
+            [tech.datatype.jna :as dtype-jna]
+            [tech.compute.cpu.jna-blas :as jna-blas])
   (:import [tech.compute.cpu.driver CPUStream]
            [java.security SecureRandom]))
 
@@ -112,11 +113,10 @@
    @(resolve 'tech.compute.cpu.tensor-math.blas/blas-fn-map)))
 
 
-
 (defn- jna-blas-fn-map
   []
-  {[:float32 :gemm] (partial jna-blas/sgemm :row-major)
-   [:float64 :gemm] (partial jna-blas/dgemm :row-major)})
+  {[:float32 :gemm] (partial jna-blas/cblas_sgemm :row-major)
+   [:float64 :gemm] (partial jna-blas/cblas_dgemm :row-major)})
 
 
 (extend-type CPUStream
@@ -235,8 +235,7 @@
           A a-row-count a-col-count a-colstride
           B b-col-count b-colstride
           beta]
-    (if (every? dtype-jna/typed-pointer? (->> [A B C]
-                                              (map ->buffer)))
+    (if (jna-blas/has-blas?)
       (cpu-driver/with-stream-dispatch stream
         ((get (jna-blas-fn-map) [(dtype/get-datatype C) :gemm])
          trans-a? trans-b? a-row-count b-col-count a-col-count
@@ -244,7 +243,7 @@
          (ct/tensor->buffer B) b-colstride
          beta (ct/tensor->buffer C) c-colstride))
 
-
+      ;;Fallback to netlib blas if necessary
       (cpu-driver/with-stream-dispatch stream
         (cmu/col->row-gemm (get-in (blas-fn-map) [(dtype/get-datatype C) :gemm])
                            trans-a? trans-b? a-row-count a-col-count b-col-count
@@ -277,30 +276,23 @@
         (throw (Exception. (str "Unrecognized distribution: " distribution)))))))
 
 
-
 (defn as-java-array
   [cpu-tensor]
   (drv/sync-with-host (ct-defaults/infer-stream {} cpu-tensor))
-  (let [dev-buffer (ct/tensor->buffer cpu-tensor)]
-    (dtype/->array dev-buffer)))
+  (-> (ct/tensor->buffer cpu-tensor)
+      dtype/->array))
 
 
 (defn buffer->tensor
-  "Construct a tensor from a buffer.  It must satisfy either
-tech.datatype.jna/PToPtr or tech.datatype.java-unsigned/PToBuffer.
-Uses item datatype and shape for tensor."
+  "Construct a tensor from a buffer.  It must satisfy either tech.jna/PToPtr or
+  tech.datatype.java-unsigned/PToBuffer.  Uses item datatype and shape for tensor."
   [item]
-  (let [tensor-buffer (if (satisfies? dtype-jna/PToPtr item)
-                        (or (dtype-jna/as-typed-pointer item)
-                            (dtype-jna/->typed-pointer item))
-                        (or (unsigned/as-typed-buffer item)
-                            (unsigned/->typed-buffer item)))]
-    (ct/construct-tensor (ct-dims/dimensions (ct/shape item))
-                         tensor-buffer)))
-
-
-(defn as-tensor
-  [item]
-  (if (ct/tensor? item)
-    item
-    (buffer->tensor item)))
+  (if-let [auto-tensor (ct/as-tensor item)]
+    auto-tensor
+    (if-let [tensor-buffer (or (dtype-jna/as-typed-pointer item)
+                               (unsigned/as-typed-buffer item)
+                               (unsigned/->typed-buffer item))]
+      (ct/construct-tensor (ct-dims/dimensions (ct/shape item))
+                           tensor-buffer)
+      (throw (ex-info "Unable to construct a tensor or tensor-buffer from item"
+                      {:item item})))))

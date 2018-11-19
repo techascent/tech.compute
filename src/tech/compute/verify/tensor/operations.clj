@@ -218,7 +218,8 @@
    driver datatype
    (let [test-ten (ct/->tensor [1 0 0 1 0])
          new-ten (tops/new-tensor test-ten)]
-     (is (= (m/shape test-ten) (m/shape new-ten)))
+     (is (= (ct/shape test-ten) (ct/shape new-ten)))
      (is (= (dtype/get-datatype test-ten) (dtype/get-datatype new-ten)))
+     (println new-ten)
      (is (m/equals [0.0 0.0 0.0 0.0 0.0]
                    (ct/to-double-array new-ten))))))

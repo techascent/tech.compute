@@ -43,6 +43,7 @@ In general we want as much error checking and analysis done in this file as oppo
             [tech.datatype.java-primitive :as primitive]
             [tech.datatype.java-unsigned :as unsigned]
             [tech.datatype.jna :as dtype-jna]
+            [tech.jna :as jna]
             [clojure.core.matrix.protocols :as mp]
             [mikera.vectorz.matrix-api]
             [clojure.core.matrix :as m]
@@ -108,10 +109,10 @@ In general we want as much error checking and analysis done in this file as oppo
   (->array-copy [tensor]
     (error-checking/ensure-simple-tensor tensor)
     (primitive/->array-copy buffer))
-  dtype-jna/PToPtr
+  jna/PToPtr
   (->ptr-backing-store [tensor]
     (error-checking/ensure-simple-tensor tensor)
-    (dtype-jna/->ptr-backing-store buffer))
+    (jna/->ptr-backing-store buffer))
 
   compute-drv/PDeviceProvider
   (get-device [tensor] (compute/->device buffer))
@@ -214,9 +215,13 @@ In general we want as much error checking and analysis done in this file as oppo
           data-shape (or shape (dtype/shape data))
           n-elems (long (apply * data-shape))
           device (compute/->device stream)
-          host-buffer (compute-drv/allocate-host-buffer
-                       (compute/->driver device)
-                       n-elems datatype options)
+          {host-buffer :return-value
+           resource-seq :resource-seq}
+          (resource/return-resource-seq
+           (compute-drv/allocate-host-buffer
+            (compute/->driver device)
+            n-elems datatype options))
+          host-buffer-release-fn #(resource/release-resource-seq resource-seq)
           [host-buffer copy-count]
           (dtype/copy-raw->item! data host-buffer 0 {:unchecked? unchecked?})]
       (when-not (= (long (apply * 1 data-shape))
@@ -226,16 +231,23 @@ In general we want as much error checking and analysis done in this file as oppo
                          :copy-ecount copy-count
                          :expected-ecount (apply * 1 shape)})))
       (let [result-buffer
+            ;;If the host buffer is an acceptable device buffer, then we can just
+            ;;stop here.
             (if (compute-drv/acceptable-device-buffer?
                  device host-buffer)
-              host-buffer
+              (do
+                ;;Track any resources created during creation of host buffer
+                (resource/make-resource host-buffer-release-fn)
+                ;;Return host buffer; everything is fine.
+                host-buffer)
               (let [dev-buffer (compute-drv/allocate-device-buffer
                                 device n-elems datatype options)]
                 (compute/copy-host->device host-buffer 0 dev-buffer
                                            0 n-elems :stream stream)
                 ;;The wait here is so that we can clean up the host buffer.
                 (compute/sync-with-host stream)
-                (resource/release host-buffer)
+                ;;Release host buffer if necessary
+                (host-buffer-release-fn)
                 dev-buffer))]
         (if (= 1 (count shape))
           result-buffer
