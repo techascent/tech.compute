@@ -1,8 +1,7 @@
 (ns tech.compute.tensor.operations
   "tensor operations with syntatic sugar"
   (:refer-clojure :exclude [max min * / - + > >= < <= bit-and bit-xor])
-  (:require [clojure.core.matrix :as m]
-            [tech.compute.tensor :as tensor]
+  (:require [tech.compute.tensor :as tensor]
             [tech.datatype.base :as dtype]))
 
 (defn max
@@ -127,7 +126,7 @@
 (defn new-tensor
   "Returns a new tensor of the same shape and type of the given output tensor"
   [output]
-  (tensor/new-tensor (m/shape output) :datatype (dtype/get-datatype output)))
+  (tensor/new-tensor (dtype/shape output) :datatype (dtype/get-datatype output)))
 
 (defn where
   "Takes a tests tensor of 1s and 0s and a tensor of then and a tensor of else.

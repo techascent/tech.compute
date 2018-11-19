@@ -10,8 +10,11 @@
             [clojure.test :refer :all]
             [tech.compute.cpu.driver :refer [driver]]
             [tech.compute.cpu.tensor-math :as cpu-tm]
+            [tech.compute.tensor.defaults :as ct-defaults]
             [tech.compute.tensor :as ct]
-            [tech.datatype :as dtype]))
+            [tech.compute.driver :as compute-drv]
+            [tech.datatype :as dtype]
+            [tech.datatype.jna :as dtype-jna]))
 
 
 (use-fixtures :each test-wrapper)
@@ -41,7 +44,7 @@
   (verify-tensor/channel-op (driver) *datatype*))
 
 
-(deftest gemm
+(def-double-float-test gemm
   (verify-tensor/gemm (driver) *datatype*))
 
 
@@ -137,3 +140,21 @@
       (is (instance? (Class/forName "[I") (ct/clone assign-result)))
       (is (instance? (Class/forName "[S") (ct/unary-op! test-tens 1.0 test-tens :ceil)))
       (is (instance? (Class/forName "[I") (ct/binary-op! assign-result 1.0 assign-result 1.0 next-tens :+))))))
+
+
+(deftest new-ops-return-base-container-when-possible
+  (testing "Test that ->tensor and new-tensor return the base container when possible."
+    (let [test-tensor (ct/->tensor [1 2 3 4])]
+      (is (instance? (Class/forName "[D") test-tensor)))
+    (let [test-device (-> (ct-defaults/infer-stream ())
+                          (compute-drv/get-device))]
+      (is (compute-drv/acceptable-device-buffer? test-device (double-array 5)))
+      (is (compute-drv/acceptable-device-buffer? test-device (dtype/make-buffer-of-type :float32 5)))
+      (is (compute-drv/acceptable-device-buffer? test-device (dtype/make-typed-buffer :float32 5)))
+      (is (compute-drv/acceptable-device-buffer? test-device (dtype-jna/make-typed-pointer :float32 5))))
+    ;;We can override the base container used for the cpu system in a function call
+    (let [test-tensor (ct/->tensor [1 2 3 4] :container-fn dtype-jna/make-typed-pointer)]
+      (is (dtype-jna/typed-pointer? test-tensor)))
+    (let [test-tensor (ct/->tensor [[1 2 3 4]] :container-fn dtype-jna/make-typed-pointer)]
+      (is (ct/tensor? test-tensor))
+      (is (= [1 4] (ct/shape test-tensor))))))
