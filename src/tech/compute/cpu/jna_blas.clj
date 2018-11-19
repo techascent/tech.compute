@@ -90,7 +90,7 @@
 (jna/def-jna-fn *system-blas-lib-name* cblas_sgemm
   "float32 gemm"
   nil
-  [order int]
+  [order enum-value]
   [trans-a? bool->blas-transpose]
   [trans-b? bool->blas-transpose]
   [M int]
@@ -109,7 +109,7 @@
 (jna/def-jna-fn *system-blas-lib-name* cblas_dgemm
   "float64 gemm"
   nil
-  [order int]
+  [order enum-value]
   [trans-a? bool->blas-transpose]
   [trans-b? bool->blas-transpose]
   [M int]

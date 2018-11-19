@@ -68,4 +68,4 @@
   (verify-tensor-operations/where-operation (driver) *datatype*))
 
 (def-all-dtype-test new-tensor-operation
-  (verify-tensor-operations/new-tensor-operation (driver) *datatype*))
+  (verify-tensor-operations/new-tensor-operation (driver) :uint32))

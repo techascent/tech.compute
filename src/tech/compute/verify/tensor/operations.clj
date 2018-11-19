@@ -220,6 +220,5 @@
          new-ten (tops/new-tensor test-ten)]
      (is (= (ct/shape test-ten) (ct/shape new-ten)))
      (is (= (dtype/get-datatype test-ten) (dtype/get-datatype new-ten)))
-     (println new-ten)
      (is (m/equals [0.0 0.0 0.0 0.0 0.0]
                    (ct/to-double-array new-ten))))))

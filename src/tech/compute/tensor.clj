@@ -249,7 +249,7 @@ In general we want as much error checking and analysis done in this file as oppo
                 ;;Release host buffer if necessary
                 (host-buffer-release-fn)
                 dev-buffer))]
-        (if (= 1 (count shape))
+        (if (= 1 (count data-shape))
           result-buffer
           (construct-tensor (dims/dimensions data-shape) result-buffer))))))
 
@@ -500,6 +500,15 @@ see:
 https://cloojure.github.io/doc/core.matrix/clojure.core.matrix.html#var-select"
   [tensor & args]
   (let [tensor (ensure-tensor tensor)
+        tensor-device (-> (defaults/infer-stream {} tensor)
+                          (compute-drv/get-device))
+        ;;Make the things that could be tensors tensors as this simplifies
+        ;;things later.
+        args (->> args
+                  (map (fn [arg]
+                         (if (compute-drv/acceptable-device-buffer? tensor-device arg)
+                           (ensure-tensor arg)
+                           arg))))
         select-result (apply dims/select (tensor->dimensions tensor) args)
         {:keys [dimensions elem-offset]} select-result
         tens-buffer (tens-proto/tensor->buffer tensor)
