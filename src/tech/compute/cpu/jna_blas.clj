@@ -1,6 +1,7 @@
 (ns tech.compute.cpu.jna-blas
   (:require [tech.datatype.jna :as dtype-jna]
             [tech.datatype :as dtype]
+            [tech.datatype.java-primitive :as primitive]
             [tech.compute.tensor.error-checking :as error-checking])
   (:import [com.sun.jna Pointer Native Function NativeLibrary]))
 
@@ -122,12 +123,12 @@
                        (int N)
                        (int K)
                        (float alpha)
-                       (dtype-jna/->ptr-backing-store A)
+                       (primitive/->buffer-backing-store A)
                        (int lda)
-                       (dtype-jna/->ptr-backing-store B)
+                       (primitive/->buffer-backing-store B)
                        (int ldb)
                        (float beta)
-                       (dtype-jna/->ptr-backing-store C)
+                       (primitive/->buffer-backing-store C)
                        (int ldc)]))))
 
 
@@ -144,10 +145,10 @@
                        (int N)
                        (int K)
                        (double alpha)
-                       (dtype-jna/->ptr-backing-store A)
+                       (primitive/->buffer-backing-store A)
                        (int lda)
-                       (dtype-jna/->ptr-backing-store B)
+                       (primitive/->buffer-backing-store B)
                        (int ldb)
                        (double beta)
-                       (dtype-jna/->ptr-backing-store C)
+                       (primitive/->buffer-backing-store C)
                        (int ldc)]))))

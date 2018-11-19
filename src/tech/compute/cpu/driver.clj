@@ -180,10 +180,13 @@ Use with care; the synchonization primitives will just hang with this stream."
 
 
 (defn- make-typed-thing
-  [datatype n-elems]
-  (if (jna-blas/has-blas?)
-    (dtype-jna/make-typed-pointer datatype n-elems)
-    (unsigned/make-typed-buffer datatype n-elems)))
+  [datatype n-elems options]
+  (if (contains? options :container-fn)
+    ((:container-fn options) datatype n-elems)
+    (if (= datatype
+           (unsigned/datatype->jvm-datatype datatype))
+      (dtype/make-array-of-type datatype n-elems options)
+      (unsigned/make-typed-buffer datatype n-elems))))
 
 
 
@@ -203,7 +206,7 @@ Use with care; the synchonization primitives will just hang with this stream."
 
   (allocate-device-buffer [impl elem-count elem-type options]
     (check-stream-error-atom impl)
-    (make-typed-thing elem-type elem-count))
+    (make-typed-thing elem-type elem-count options))
 
   (acceptable-device-buffer? [device item]
     (and (or (dtype-jna/typed-pointer? item)
@@ -222,7 +225,7 @@ Use with care; the synchonization primitives will just hang with this stream."
 
   (allocate-host-buffer [impl elem-count elem-type options]
     (check-stream-error-atom impl)
-    (make-typed-thing elem-type elem-count)))
+    (make-typed-thing elem-type elem-count options)))
 
 
 (declare default-cpu-stream)

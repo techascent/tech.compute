@@ -203,43 +203,48 @@ In general we want as much error checking and analysis done in this file as oppo
 
 
 (defn ->tensor
-  "Create a tensor from the data.  The shape of the data combined with the batch size
-will determine the shape of the outgoing tensor.  If this can be used in-place as a tenor
-buffer and is safe to call on already constructed tensors."
+  "Create a tensor from the data by copying the data at least once."
   [data & {:keys [datatype unchecked? shape stream force-copy?]
            :as options}]
   (if (tensor? data)
     data
     (let [stream (defaults/infer-stream options)
-          driver (compute-drv/get-driver stream)]
-      (if (and (acceptable-tensor-buffer? data)
-               (or (not datatype)
-                   (= datatype (dtype/get-datatype data)))
-               (or (not shape)
-                   (= (apply * 1 shape)
-                      (dtype/shape data)))
-               (not force-copy?))
-        (as-tensor data)
-        (let [datatype (defaults/datatype datatype)
-              data-shape (or shape (dtype/shape data))
-              n-elems (long (apply * data-shape))
-              device (compute/->device stream)
-              host-buffer (compute/allocate-host-buffer
-                           (compute/->driver device)
-                           n-elems datatype)
-              dev-buffer (compute/allocate-device-buffer device n-elems datatype)
-              dimensions (dims/dimensions data-shape)]
-          (dtype/copy-raw->item! data host-buffer 0 {:unchecked? unchecked?})
-          (compute/copy-host->device host-buffer 0 dev-buffer 0 n-elems :stream stream)
-          ;;The wait here is so that we can clean up the host buffer.
-          (compute/sync-with-host stream)
-          (resource/release host-buffer)
-          (construct-tensor dimensions dev-buffer))))))
+          driver (compute-drv/get-driver stream)
+          datatype (defaults/datatype datatype)
+          data-shape (or shape (dtype/shape data))
+          n-elems (long (apply * data-shape))
+          device (compute/->device stream)
+          host-buffer (compute-drv/allocate-host-buffer
+                       (compute/->driver device)
+                       n-elems datatype options)
+          [host-buffer copy-count]
+          (dtype/copy-raw->item! data host-buffer 0 {:unchecked? unchecked?})]
+      (when-not (= (long (apply * 1 data-shape))
+                   (long copy-count))
+        (throw (ex-info "Failed to copy the expected amount into host buffer"
+                        {:shape shape
+                         :copy-ecount copy-count
+                         :expected-ecount (apply * 1 shape)})))
+      (let [result-buffer
+            (if (compute-drv/acceptable-device-buffer?
+                 device host-buffer)
+              host-buffer
+              (let [dev-buffer (compute-drv/allocate-device-buffer
+                                device n-elems datatype options)]
+                (compute/copy-host->device host-buffer 0 dev-buffer
+                                           0 n-elems :stream stream)
+                ;;The wait here is so that we can clean up the host buffer.
+                (compute/sync-with-host stream)
+                (resource/release host-buffer)
+                dev-buffer))]
+        (if (= 1 (count shape))
+          result-buffer
+          (construct-tensor (dims/dimensions data-shape) result-buffer))))))
 
 
 (defn new-tensor
   [shape & {:keys [datatype init-value stream]
-                   :or {init-value 0}
+            :or {init-value 0}
             :as options}]
   (let [dimensions (dims/dimensions shape)
         n-elems (long (apply * shape))
@@ -250,7 +255,9 @@ buffer and is safe to call on already constructed tensors."
         retval (construct-tensor dimensions dev-buffer)]
     (when init-value
       (m/assign! retval init-value))
-    retval))
+    (if (= 1 (count shape))
+      dev-buffer
+      retval)))
 
 
 (defn from-prototype
