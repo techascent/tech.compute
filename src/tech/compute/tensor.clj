@@ -245,7 +245,7 @@ In general we want as much error checking and analysis done in this file as oppo
                 (compute/copy-host->device host-buffer 0 dev-buffer
                                            0 n-elems :stream stream)
                 ;;The wait here is so that we can clean up the host buffer.
-                (compute/sync-with-host stream)
+                (compute/sync-with-host stream {:gc-root host-buffer})
                 ;;Release host buffer if necessary
                 (host-buffer-release-fn)
                 dev-buffer))]
@@ -792,20 +792,25 @@ projecting to the surface of the hypersphere like normalize does, do a <= operat
          n-elems (ecount tensor)
          device (tensor->device tensor)
          stream (defaults/infer-stream options src)
-         host-buffer (compute/allocate-host-buffer
-                      (compute/->driver device)
-                      n-elems (dtype/get-datatype tensor))]
-     (compute/copy-device->host (tensor->buffer tensor) 0
-                                host-buffer 0 n-elems
-                                :stream stream)
-     ;;Block until the copy completes.
-     (compute/sync-with-host stream)
+         driver (compute-drv/get-driver stream)
+         host-buffer (if (compute-drv/acceptable-host-buffer?
+                          driver (tensor->buffer tensor))
+                       (tensor->buffer tensor)
+                       (let [host-buffer (compute/allocate-host-buffer
+                                          (compute/->driver device)
+                                          n-elems (dtype/get-datatype tensor))]
+                         (compute/copy-device->host (tensor->buffer tensor) 0
+                                                    host-buffer 0 n-elems
+                                                    :stream stream)
+                         ;;GC cannot clean up tensor safely until this sync completed.
+                         (compute/sync-with-host stream {:gc-root tensor})
+                         host-buffer))]
      (dtype/copy! host-buffer 0 dest 0 n-elems options)
      dest)))
 
 
 (defn to-array-of-type
-  [^Tensor tensor datatype]
+  [tensor datatype]
   (copy-to-java-type (dtype/make-array-of-type datatype (ecount tensor))
                      tensor))
 

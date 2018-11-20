@@ -227,7 +227,11 @@ Use with care; the synchonization primitives will just hang with this stream."
 
   (allocate-host-buffer [impl elem-count elem-type options]
     (check-stream-error-atom impl)
-    (make-typed-thing elem-type elem-count options)))
+    (make-typed-thing elem-type elem-count options))
+
+  (acceptable-host-buffer? [impl item]
+    (and (or (dtype-jna/typed-pointer? item)
+             (unsigned/typed-buffer? item)))))
 
 
 (declare default-cpu-stream)

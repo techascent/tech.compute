@@ -181,14 +181,14 @@ buffer's device's default stream is used."
 
 (defn sync-with-host
   "Block host until stream's queue is finished executing"
-  [stream]
+  [stream & [options]]
   (drv/sync-with-host stream))
 
 (defn sync-with-stream
   "Create an event in src-stream's execution queue, then have dst stream wait on that
   event.  This allows dst-stream to ensure src-stream has reached a certain point of
   execution before continuing.  Both streams must be of the same driver."
-  [src-stream dst-stream]
+  [src-stream dst-stream & [options]]
   (drv/sync-with-stream src-stream dst-stream))
 
 
@@ -207,13 +207,13 @@ buffer's device's default stream is used."
   (let [device (->device stream)
         driver (->driver device)
         elem-count (dtype/ecount upload-ary)
+        device-buffer (allocate-device-buffer device elem-count datatype options)
         upload-buffer (allocate-host-buffer driver elem-count datatype
-                                            :usage-type :one-time)
-        device-buffer (allocate-device-buffer device elem-count datatype options)]
+                                            :usage-type :one-time)]
     (dtype/copy-raw->item! upload-ary upload-buffer 0 options)
     (copy-host->device stream upload-buffer 0 device-buffer 0 elem-count)
-    (sync-with-host stream)
-    (resource/release upload-buffer)
+    ;;Hold onto host buffer till this completes
+    (sync-with-host stream {:gc-root upload-buffer})
     device-buffer))
 
 

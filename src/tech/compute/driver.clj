@@ -46,7 +46,9 @@ host buffer and then uploaded to a device buffer.
 options:
 {:usage-type #{:one-time :reusable}
 usage-type: Hint to allow implementations to allocate different types of host buffers each
-optimized for the desired use case.  Default is one-time."))
+optimized for the desired use case.  Default is one-time.")
+  (acceptable-host-buffer? [driver buffer]
+    "Will this buffer work as a host buffer?"))
 
 (defonce host-buffer-usage-types #{:one-time :reusable})
 
