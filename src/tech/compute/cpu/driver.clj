@@ -5,6 +5,7 @@
             [tech.datatype.java-unsigned :as unsigned]
             [clojure.core.async :as async]
             [tech.resource :as resource]
+            [tech.resource.stack :as stack]
             [tech.compute :as compute]
             [tech.compute.registry :as registry]
             [tech.compute.cpu.jna-blas :as jna-blas]
@@ -63,7 +64,7 @@
 
 
 (extend-type CPUStream
-  resource/PResource
+  stack/PResource
   (release-resource [impl]
     (when (.input-chan impl)
       (async/close! (.input-chan impl)))))

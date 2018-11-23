@@ -15,7 +15,7 @@
 
 (defmacro tensor-context
   [stream datatype & body]
-  `(resource/with-resource-context
+  `(resource/stack-resource-context
      (defaults/tensor-context
       ~stream
       ~datatype
@@ -24,7 +24,7 @@
 
 (defmacro tensor-default-context
   [driver datatype & body]
-  `(resource/with-resource-context
+  `(resource/stack-resource-context
      (defaults/tensor-driver-context
       ~driver
       ~datatype

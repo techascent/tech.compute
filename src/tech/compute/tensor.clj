@@ -48,6 +48,7 @@ In general we want as much error checking and analysis done in this file as oppo
             [mikera.vectorz.matrix-api]
             [clojure.core.matrix :as m]
             [tech.resource :as resource]
+            [tech.resource.stack :as stack]
             [tech.compute.tensor.math :as tm]
             [tech.compute.tensor.dimensions :as dims]
             [tech.compute.tensor.utils :refer [when-not-error
@@ -217,11 +218,11 @@ In general we want as much error checking and analysis done in this file as oppo
           device (compute/->device stream)
           {host-buffer :return-value
            resource-seq :resource-seq}
-          (resource/return-resource-seq
+          (stack/return-resource-seq
            (compute-drv/allocate-host-buffer
             (compute/->driver device)
             n-elems datatype options))
-          host-buffer-release-fn #(resource/release-resource-seq resource-seq)
+          host-buffer-release-fn #(stack/release-resource-seq resource-seq)
           [host-buffer copy-count]
           (dtype/copy-raw->item! data host-buffer 0 {:unchecked? unchecked?})]
       (when-not (= (long (apply * 1 data-shape))
@@ -237,7 +238,7 @@ In general we want as much error checking and analysis done in this file as oppo
                  device host-buffer)
               (do
                 ;;Track any resources created during creation of host buffer
-                (resource/make-resource host-buffer-release-fn)
+                (resource/track host-buffer-release-fn)
                 ;;Return host buffer; everything is fine.
                 host-buffer)
               (let [dev-buffer (compute-drv/allocate-device-buffer
@@ -787,7 +788,7 @@ projecting to the surface of the hypersphere like normalize does, do a <= operat
   "The options map in this case also contains potentially
 {:unchecked?} as the dtype/copy method is used."
   [dest ^Tensor src & [options]]
-  (resource/with-resource-context
+  (resource/stack-resource-context
    (let [tensor (make-dense src)
          n-elems (ecount tensor)
          device (tensor->device tensor)

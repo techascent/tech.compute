@@ -10,15 +10,14 @@
 
 (defn test-wrapper
   [test-fn]
-  (resource/with-resource-context
+  (resource/stack-resource-context
     ;;Turn on if you want much slower tests.
-    (with-bindings {#'resource/*resource-debug-double-free* false}
-      (test-fn))))
+    (test-fn)))
 
 
 (defmacro with-default-device-and-stream
   [driver & body]
-  `(resource/with-resource-context
+  `(resource/stack-resource-context
      (let [~'device (compute/default-device ~driver)
            ~'stream (compute/default-stream ~'device)]
        ~@body)))
