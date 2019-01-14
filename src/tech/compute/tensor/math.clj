@@ -77,3 +77,16 @@ c = alpha * (trans-a? a) * (trans-b? b) + beta * c")
   (rand! [stream dest distribution]
     "Generate a pool of random numbers over this distribution.  All elements of dest are assigned
 to randomly out of the pool."))
+
+
+(defprotocol LAPACK
+  "Operations corresponding to the lapack set of functions."
+  (cholesky-factorize! [stream dest-A upload]
+    "dpotrf bindings.  Dest is both input and result argument.
+dest: io argument, corresponding to matrix that is being factorized.
+upload: :upper or :lower, store U or L.")
+  (cholesky-solve! [stream dest-B upload A]
+    "dpotrs bindings.
+dest-B: Matrix to solve.
+upload: :upper or :lower depending on if A is upper or lower.
+A: cholesky-decomposed matrix A."))

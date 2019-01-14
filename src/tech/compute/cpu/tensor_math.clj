@@ -25,7 +25,8 @@
                      ] :as nio-access]
             [tech.compute.cpu.jna-blas :as jna-blas]
             [tech.datatype.jna :as dtype-jna]
-            [tech.compute.cpu.jna-blas :as jna-blas])
+            [tech.compute.cpu.jna-blas :as jna-blas]
+            [tech.compute.cpu.jna-lapack :as jna-lapack])
   (:import [tech.compute.cpu.driver CPUStream]
            [java.security SecureRandom]))
 
@@ -83,6 +84,24 @@
   []
   {[:float32 :gemm] (partial jna-blas/cblas_sgemm :row-major)
    [:float64 :gemm] (partial jna-blas/cblas_dgemm :row-major)})
+
+
+(defn- jna-lapack-fn-map
+  []
+  {[:float32 :potrf] jna-lapack/spotrf_
+   [:float64 :potrf] jna-lapack/dpotrf_
+   [:float32 :potrs] jna-lapack/spotrs_
+   [:float64 :potrs] jna-lapack/dpotrs_})
+
+
+(defn- lapack-upload->fortran
+  [upload-kwd]
+  (if-let [retval (get
+                   {:upper "L"
+                    :lower "U"}
+                   upload-kwd)]
+    retval
+    (throw (ex-info "Unrecognized upload command" {:upload-kwd upload-kwd}))))
 
 
 (extend-type CPUStream
@@ -239,7 +258,49 @@
                                          (* (.nextFloat rand-gen)
                                             range)))))
         :else
-        (throw (Exception. (str "Unrecognized distribution: " distribution)))))))
+        (throw (Exception. (str "Unrecognized distribution: " distribution))))))
+
+
+  tm/LAPACK
+  (cholesky-factorize! [stream dest-A upload]
+    (cpu-driver/with-stream-dispatch stream
+      (if-let [decom-fn (get (jna-lapack-fn-map) [(dtype/get-datatype dest-A) :potrf])]
+        (let [[row-count column-count] (ct/shape dest-A)
+              fn-retval-ary (int-array 1)
+              _ (decom-fn (lapack-upload->fortran upload)
+                          (int-array [row-count])
+                          (ct/tensor->buffer dest-A)
+                          (int-array [column-count])
+                          fn-retval-ary)
+              fn-retval (aget fn-retval-ary 0)]
+          (when-not (= 0 fn-retval)
+            (if (< fn-retval 0)
+              (throw (ex-info "Internal error, argument incorrect:" {:argument (* -1 fn-retval)}))
+              (throw (ex-info "A is not positive definite; detected at column" {:column fn-retval}))))
+          dest-A)
+        (throw (ex-info "Unable to find decomp function for tensor datatype:"
+                        {:datatype (dtype/get-datatype dest-A)})))))
+
+  (cholesky-solve! [stream dest-B upload A]
+    (cpu-driver/with-stream-dispatch stream
+      (if-let [solve-fn (get (jna-lapack-fn-map) [(dtype/get-datatype dest-B) :potrs])]
+        (let [[a-row-count a-col-count] (ct/shape A)
+              [b-row-count b-col-count] (ct/shape dest-B)
+              fn-retval (int-array 1)
+              _ (solve-fn (lapack-upload->fortran upload)
+                          (int-array [a-row-count])
+                          (int-array [b-row-count])
+                          (ct/tensor->buffer A)
+                          (int-array [a-col-count])
+                          (ct/tensor->buffer dest-B)
+                          (int-array [b-col-count])
+                          fn-retval)
+              fn-retval (aget fn-retval 0)]
+          (when (< fn-retval 0)
+            (throw (ex-info "Internal error, argument incorrect:" {:argument (* -1 fn-retval)})))
+          dest-B)
+        (throw (ex-info "Unable to find solve fn for B datatype:"
+                        {:datatype (dtype/get-datatype dest-B)}))))))
 
 
 (defn as-java-array
