@@ -164,3 +164,7 @@
 
 (def-double-float-test cholesky-decomp
   (verify-tensor/cholesky-decomp (driver) *datatype*))
+
+
+(def-double-float-test LU-decomp
+  (verify-tensor/LU-decomp (driver) *datatype*))

@@ -11,7 +11,8 @@
             [tech.compute.verify.utils :as verify-utils]
             [tech.datatype.java-unsigned :as unsigned]
             [tech.compute.tensor.defaults :as defaults]
-            [tech.compute.tensor.math :as ct-tm]))
+            [tech.compute.tensor.math :as ct-tm]
+            [tech.compute.tensor.lapack :as ct-lapack]))
 
 
 (defmacro tensor-context
@@ -700,10 +701,31 @@ for the cuda backend."
                             [0 1 0]
                             [0 0 1]])
         inverse (ct/clone ident)
-        stream (defaults/infer-stream {} test-A)
         result (ct/new-tensor [3 3])]
-    (ct-tm/cholesky-factorize! stream test-A :lower)
-    (ct-tm/cholesky-solve! stream inverse :lower test-A)
+    (ct-lapack/cholesky-factorize! test-A :lower)
+    (ct-lapack/cholesky-solve! inverse :lower test-A)
+    (ct/gemm! result false false 1.0 orig-A inverse 0.0)
+    (is (m/equals (ct/to-core-matrix result)
+                  (ct/to-core-matrix ident)
+                  0.0001)))))
+
+
+(defn LU-decomp
+  [driver datatype]
+  (tensor-default-context
+   driver datatype
+   (let [test-A (ct/->tensor [[4 1 -1]
+                             [1 2 1]
+                             [-1 1 3]])
+         orig-A (ct/clone test-A)
+         ident (ct/->tensor [[1 0 0]
+                            [0 1 0]
+                            [0 0 1]])
+         inverse (ct/clone ident)
+         result (ct/new-tensor [3 3])
+         {test-A :LU
+          pivots :pivots} (ct-lapack/LU-factorize! test-A)]
+    (ct-lapack/LU-solve! inverse :no-transpose test-A pivots)
     (ct/gemm! result false false 1.0 orig-A inverse 0.0)
     (is (m/equals (ct/to-core-matrix result)
                   (ct/to-core-matrix ident)

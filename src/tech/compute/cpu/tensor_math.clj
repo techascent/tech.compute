@@ -91,7 +91,12 @@
   {[:float32 :potrf] jna-lapack/spotrf_
    [:float64 :potrf] jna-lapack/dpotrf_
    [:float32 :potrs] jna-lapack/spotrs_
-   [:float64 :potrs] jna-lapack/dpotrs_})
+   [:float64 :potrs] jna-lapack/dpotrs_
+
+   [:float32 :getrf] jna-lapack/sgetrf_
+   [:float64 :getrf] jna-lapack/dgetrf_
+   [:float32 :getrs] jna-lapack/sgetrs_
+   [:float64 :getrs] jna-lapack/dgetrs_})
 
 
 (defn- lapack-upload->fortran
@@ -102,6 +107,16 @@
                    upload-kwd)]
     retval
     (throw (ex-info "Unrecognized upload command" {:upload-kwd upload-kwd}))))
+
+
+(defn- lapack-trans->fortran
+  [trans-kwd]
+  (if-let [retval (get {:no-transpose "N"
+                        :transpose "T"
+                        :conjugate-transpose "C"}
+                       trans-kwd)]
+    retval
+    (throw (ex-info "Failed to get correct transpose cmd" {:trans-kwd trans-kwd}))))
 
 
 (extend-type CPUStream
@@ -288,19 +303,55 @@
               [b-row-count b-col-count] (ct/shape dest-B)
               fn-retval (int-array 1)
               _ (solve-fn (lapack-upload->fortran upload)
-                          (int-array [a-row-count])
-                          (int-array [b-row-count])
+                          a-row-count b-row-count
                           (ct/tensor->buffer A)
-                          (int-array [a-col-count])
+                          a-col-count
                           (ct/tensor->buffer dest-B)
-                          (int-array [b-col-count])
+                          b-col-count
                           fn-retval)
               fn-retval (aget fn-retval 0)]
           (when (< fn-retval 0)
             (throw (ex-info "Internal error, argument incorrect:" {:argument (* -1 fn-retval)})))
           dest-B)
         (throw (ex-info "Unable to find solve fn for B datatype:"
-                        {:datatype (dtype/get-datatype dest-B)}))))))
+                        {:datatype (dtype/get-datatype dest-B)})))))
+
+  (LU-factorize! [stream dest-A dest-ipiv]
+    (if-let [factor-fn (get (jna-lapack-fn-map) [(dtype/get-datatype dest-A) :getrf])]
+      (let [[a-row-count a-col-count] (ct/shape dest-A)
+            [n-ipiv-rows] (ct/shape dest-ipiv)
+            fn-retval (int-array 1)
+            _ (factor-fn a-col-count a-row-count (ct/tensor->buffer dest-A)
+                         a-col-count (ct/tensor->buffer dest-ipiv)
+                         fn-retval)
+            retval (aget fn-retval 0)]
+        (cond
+          (= retval 0) {:A dest-A :ipiv dest-ipiv}
+          (< retval 0) (throw (ex-info "I-th argument error:" {:i retval}))
+          (> retval 0) (throw (ex-info "U is singular" {:column retval}))))
+      (throw (ex-info "Unable to find decomp function for tensor datatype:"
+                      {:datatype (dtype/get-datatype dest-A)}))))
+
+
+  (LU-solve! [stream dest-B trans A ipiv]
+    (if-let [solve-fn (get (jna-lapack-fn-map) [(dtype/get-datatype dest-B) :getrs])]
+      (let [trans-cmd (lapack-trans->fortran trans)
+            [a-row-count a-col-count] (ct/shape A)
+            [b-row-count b-col-count] (ct/shape dest-B)
+            fn-retval (int-array 1)
+            _ (solve-fn trans-cmd
+                        a-row-count b-row-count
+                        (ct/tensor->buffer A)
+                        a-col-count
+                        (ct/tensor->buffer ipiv)
+                        (ct/tensor->buffer dest-B)
+                        b-col-count
+                        fn-retval)
+            retval (aget fn-retval 0)]
+        (cond
+          (= 0 retval) dest-B
+          (< retval 0) (throw (ex-info "ith argument had error" {:i retval}))))
+      (throw (ex-info "Failed to find lu solve for datatype" {:datatype (dtype/get-datatype dest-B)})))))
 
 
 (defn as-java-array

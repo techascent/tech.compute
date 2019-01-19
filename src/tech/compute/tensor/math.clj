@@ -89,4 +89,14 @@ upload: :upper or :lower, store U or L.")
     "dpotrs bindings.
 dest-B: Matrix to solve.
 upload: :upper or :lower depending on if A is upper or lower.
-A: cholesky-decomposed matrix A."))
+A: cholesky-decomposed matrix A.")
+
+  (LU-factorize! [stream dest-A dest-ipiv]
+    "LU factorize with dest-a being the matrix to solve that receives the answer and
+dest-ipiv being and integer tensor that receives the pivot indices")
+
+  (LU-solve! [stream dest-B trans A ipiv]
+    "Solve using LU-factored A (possibly transposed) and pivot ary.  B is matrix to solve and will
+contain the solution matrix.
+trans: one of - [:no-transpose :transpose :conjugate-transpose]")
+  )
