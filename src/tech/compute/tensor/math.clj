@@ -99,4 +99,19 @@ dest-ipiv being and integer tensor that receives the pivot indices")
     "Solve using LU-factored A (possibly transposed) and pivot ary.  B is matrix to solve and will
 contain the solution matrix.
 trans: one of - [:no-transpose :transpose :conjugate-transpose]")
-  )
+
+  (singular-value-decomposition! [stream jobu jobvt A s U VT]
+    "Computes the singular value decomposition (SVD) of a real
+ M-by-N matrix A, optionally computing the left and/or right singular
+ vectors. The SVD is written
+
+      A = U * SIGMA * transpose(V)
+
+ where SIGMA is an M-by-N matrix which is zero except for its
+ min(m,n) diagonal elements, U is an M-by-M orthogonal matrix, and
+ V is an N-by-N orthogonal matrix.  The diagonal elements of SIGMA
+ are the singular values of A; they are real and non-negative, and
+ are returned in descending order.  The first min(m,n) columns of
+ U and V are the left and right singular vectors of A.
+
+ Note that the routine returns V**T, not V."))

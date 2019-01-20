@@ -28,7 +28,8 @@
             [tech.compute.cpu.jna-blas :as jna-blas]
             [tech.compute.cpu.jna-lapack :as jna-lapack])
   (:import [tech.compute.cpu.driver CPUStream]
-           [java.security SecureRandom]))
+           [java.security SecureRandom]
+           [com.sun.jna Pointer]))
 
 
 
@@ -96,7 +97,10 @@
    [:float32 :getrf] jna-lapack/sgetrf_
    [:float64 :getrf] jna-lapack/dgetrf_
    [:float32 :getrs] jna-lapack/sgetrs_
-   [:float64 :getrs] jna-lapack/dgetrs_})
+   [:float64 :getrs] jna-lapack/dgetrs_
+
+   [:float32 :gesvd] jna-lapack/sgesvd_
+   [:float64 :gesvd] jna-lapack/dgesvd_})
 
 
 (defn- lapack-upload->fortran
@@ -117,6 +121,33 @@
                        trans-kwd)]
     retval
     (throw (ex-info "Failed to get correct transpose cmd" {:trans-kwd trans-kwd}))))
+
+
+(def jobu-table
+  {:all-columns-U "A"
+   :left-singular-U "S"
+   :left-singular-A "O"
+   :no-singular "N"})
+
+(def jobvt-table
+  {:all-rows-VT "A"
+   :right-singular-VT "S"
+   :right-singular-A "O"
+   :no-singular "N"})
+
+
+(defn- jobu->fortran
+  [jobu]
+  (if-let [retval (get jobu-table jobu)]
+    retval
+    (throw (ex-info "Unrecognized jobu" {:jobu jobu}))))
+
+
+(defn- jobvt->fortran
+  [jobvt]
+  (if-let [retval (get jobvt-table jobvt)]
+    retval
+    (throw (ex-info "Unrecognized jobu" {:jobvt jobvt}))))
 
 
 (extend-type CPUStream
@@ -278,8 +309,8 @@
 
   tm/LAPACK
   (cholesky-factorize! [stream dest-A upload]
-    (cpu-driver/with-stream-dispatch stream
-      (if-let [decom-fn (get (jna-lapack-fn-map) [(dtype/get-datatype dest-A) :potrf])]
+    (if-let [decom-fn (get (jna-lapack-fn-map) [(dtype/get-datatype dest-A) :potrf])]
+      (cpu-driver/with-stream-dispatch stream
         (let [[row-count column-count] (ct/shape dest-A)
               fn-retval-ary (int-array 1)
               _ (decom-fn (lapack-upload->fortran upload)
@@ -292,13 +323,13 @@
             (if (< fn-retval 0)
               (throw (ex-info "Internal error, argument incorrect:" {:argument (* -1 fn-retval)}))
               (throw (ex-info "A is not positive definite; detected at column" {:column fn-retval}))))
-          dest-A)
-        (throw (ex-info "Unable to find decomp function for tensor datatype:"
-                        {:datatype (dtype/get-datatype dest-A)})))))
+          dest-A))
+      (throw (ex-info "Unable to find decomp function for tensor datatype:"
+                      {:datatype (dtype/get-datatype dest-A)}))))
 
   (cholesky-solve! [stream dest-B upload A]
-    (cpu-driver/with-stream-dispatch stream
-      (if-let [solve-fn (get (jna-lapack-fn-map) [(dtype/get-datatype dest-B) :potrs])]
+    (if-let [solve-fn (get (jna-lapack-fn-map) [(dtype/get-datatype dest-B) :potrs])]
+      (cpu-driver/with-stream-dispatch stream
         (let [[a-row-count a-col-count] (ct/shape A)
               [b-row-count b-col-count] (ct/shape dest-B)
               fn-retval (int-array 1)
@@ -312,46 +343,94 @@
               fn-retval (aget fn-retval 0)]
           (when (< fn-retval 0)
             (throw (ex-info "Internal error, argument incorrect:" {:argument (* -1 fn-retval)})))
-          dest-B)
-        (throw (ex-info "Unable to find solve fn for B datatype:"
-                        {:datatype (dtype/get-datatype dest-B)})))))
+          dest-B))
+      (throw (ex-info "Unable to find solve fn for B datatype:"
+                      {:datatype (dtype/get-datatype dest-B)}))))
 
   (LU-factorize! [stream dest-A dest-ipiv]
     (if-let [factor-fn (get (jna-lapack-fn-map) [(dtype/get-datatype dest-A) :getrf])]
-      (let [[a-row-count a-col-count] (ct/shape dest-A)
-            [n-ipiv-rows] (ct/shape dest-ipiv)
-            fn-retval (int-array 1)
-            _ (factor-fn a-col-count a-row-count (ct/tensor->buffer dest-A)
-                         a-col-count (ct/tensor->buffer dest-ipiv)
-                         fn-retval)
-            retval (aget fn-retval 0)]
-        (cond
-          (= retval 0) {:A dest-A :ipiv dest-ipiv}
-          (< retval 0) (throw (ex-info "I-th argument error:" {:i retval}))
-          (> retval 0) (throw (ex-info "U is singular" {:column retval}))))
+      (cpu-driver/with-stream-dispatch stream
+        (let [[a-row-count a-col-count] (ct/shape dest-A)
+              [n-ipiv-rows] (ct/shape dest-ipiv)
+              fn-retval (int-array 1)
+              _ (factor-fn a-col-count a-row-count (ct/tensor->buffer dest-A)
+                           a-col-count (ct/tensor->buffer dest-ipiv)
+                           fn-retval)
+              retval (aget fn-retval 0)]
+          (cond
+            (= retval 0) {:A dest-A :ipiv dest-ipiv}
+            (< retval 0) (throw (ex-info "I-th argument error:" {:i retval}))
+            (> retval 0) (throw (ex-info "U is singular" {:column retval})))))
       (throw (ex-info "Unable to find decomp function for tensor datatype:"
                       {:datatype (dtype/get-datatype dest-A)}))))
 
 
   (LU-solve! [stream dest-B trans A ipiv]
     (if-let [solve-fn (get (jna-lapack-fn-map) [(dtype/get-datatype dest-B) :getrs])]
-      (let [trans-cmd (lapack-trans->fortran trans)
-            [a-row-count a-col-count] (ct/shape A)
-            [b-row-count b-col-count] (ct/shape dest-B)
-            fn-retval (int-array 1)
-            _ (solve-fn trans-cmd
-                        a-row-count b-row-count
-                        (ct/tensor->buffer A)
-                        a-col-count
-                        (ct/tensor->buffer ipiv)
-                        (ct/tensor->buffer dest-B)
-                        b-col-count
-                        fn-retval)
-            retval (aget fn-retval 0)]
-        (cond
-          (= 0 retval) dest-B
-          (< retval 0) (throw (ex-info "ith argument had error" {:i retval}))))
-      (throw (ex-info "Failed to find lu solve for datatype" {:datatype (dtype/get-datatype dest-B)})))))
+      (cpu-driver/with-stream-dispatch stream
+        (let [trans-cmd (lapack-trans->fortran trans)
+              [a-row-count a-col-count] (ct/shape A)
+              [b-row-count b-col-count] (ct/shape dest-B)
+              fn-retval (int-array 1)
+              _ (solve-fn trans-cmd
+                          a-row-count b-row-count
+                          (ct/tensor->buffer A)
+                          a-col-count
+                          (ct/tensor->buffer ipiv)
+                          (ct/tensor->buffer dest-B)
+                          b-col-count
+                          fn-retval)
+              retval (aget fn-retval 0)]
+          (cond
+            (= 0 retval) dest-B
+            (< retval 0) (throw (ex-info "ith argument had error" {:i retval})))))
+      (throw (ex-info "Failed to find lu solve for datatype" {:datatype (dtype/get-datatype dest-B)}))))
+
+
+  (singular-value-decomposition! [stream jobu jobvt A s U VT]
+    (if-let [lapack-fn (get (jna-lapack-fn-map) [(dtype/get-datatype A) :gesvd])]
+      (cpu-driver/with-stream-dispatch stream
+        (let [jobu (jobu->fortran jobu)
+              jobvt (jobvt->fortran jobvt)
+              retval-data (int-array [1])
+              work (dtype/make-array-of-type (dtype/get-datatype A) [1])
+              [N M] (ct/shape A)
+              [u-row-count u-col-count] (if U
+                                          (ct/shape U)
+                                          [0 0])
+              [vt-row-count vt-col-count] (if VT
+                                            (ct/shape VT)
+                                            [0 0])
+              A (ct/tensor->buffer A)
+              s (ct/tensor->buffer s)
+              U (if U
+                  (ct/tensor->buffer U)
+                  (Pointer. 0))
+              VT (if VT
+                   (ct/tensor->buffer VT)
+                   (Pointer. 0))
+              lapack-closure #(lapack-fn jobu jobvt M N
+                                         A M
+                                         s
+                                         U
+                                         u-col-count
+                                         VT
+                                         vt-col-count
+                                         %1
+                                         %2
+                                         retval-data)
+              _ (lapack-closure work -1)
+              _ (when-not (= 0 (aget retval-data 0))
+                  (throw (ex-info "Failure in work query" {:retval (aget retval-data 0)})))
+              lwork (long (dtype/get-value work 0))
+              work (dtype/make-array-of-type (dtype/get-datatype A) lwork)
+              _ (lapack-closure work lwork)
+              retval (aget retval-data 0)]
+          (cond
+            (= retval 0) {:A A :s s :U U :VT VT}
+            (< retval 0) (throw (ex-info "i-th argument had an illegal value" {:ith retval}))
+            (> retval 0) (throw (ex-info "DBSQR did not converge" {:unconverged-superdiagonals retval})))))
+      (throw (ex-info "Failed to find SVD for datatype" {:datatype (dtype/get-datatype A)})))))
 
 
 (defn as-java-array

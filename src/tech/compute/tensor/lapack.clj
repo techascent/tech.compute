@@ -107,7 +107,7 @@
 
 (defn LU-solve!
   "Solve a matrix using an LU factored system"
-  [dest-B trans-cmd A pivots & options]
+  [dest-B trans-cmd A pivots & {:as options}]
   (let [dest-B (ct/ensure-tensor dest-B)
         A (ct/ensure-tensor A)
         pivots (ct/ensure-tensor pivots)
@@ -135,3 +135,107 @@
         {:pivot-shape (ct/shape pivots)})
       (tm/LU-solve! stream dest-B trans-cmd A pivots)
       dest-B)))
+
+
+(def jobu-set
+  #{:all-columns-U
+    :left-singular-U
+    :left-singular-A
+    :no-singular})
+
+(def jobvt-set
+  #{:all-rows-VT
+    :right-singular-VT
+    :right-singular-A
+    :no-singular})
+
+
+(defn singular-value-decomposition
+  "SVD decomposition.  Note that because this is a pure fortran method, A, U, and VT are
+  considered transposed implicitly. So jobu set to :all-columns-U really means all-rows-U
+  and vice versa."
+  [jobu jobvt A s U VT & {:as options}]
+  (let [A (ct/ensure-tensor A)
+        s (ct/ensure-tensor s)
+        U (ct/ensure-tensor U)
+        VT (ct/ensure-tensor VT)
+        a-datatype (dtype/get-datatype A)
+        [a-row-count a-col-count :as a-shape] (ct/shape A)
+        u-used? (boolean (#{:all-columns-U
+                            :left-singular-U} jobu))
+        vt-used? (boolean (#{:all-rows-VT
+                             :right-singular-VT} jobvt))
+        [u-row-count u-col-count :as u-shape] (if u-used?
+                                                (ct/shape U)
+                                                [])
+        [vt-row-count vt-col-count :as vt-shape] (if vt-used?
+                                                   (ct/shape VT)
+                                                   [])
+        [s-col-count :as s-shape] (ct/shape s)
+        N (int a-row-count)
+        M (int a-col-count)
+        min-m-n (min M N)
+        stream (defaults/infer-stream options A s U VT)]
+    (error-checking/ensure-datatypes a-datatype s U VT)
+    (error-checking/ensure-same-device A s U VT)
+    (error-checking/ensure-matrix A)
+    (error-checking/ensure-matrix U)
+    (error-checking/ensure-matrix VT)
+    (when-not-error (= 1 (count s-shape))
+      "S must be vector" {:s-shape s-shape})
+    (when-not-error (= (int s-col-count)
+                       min-m-n)
+      "S has invalid shape" {:s-shape s-shape})
+    (when-not-error (jobu-set jobu)
+      "Invalid jobu" {:jobu jobu
+                      :jobu-set jobu-set})
+
+    (when-not-error (or (not u-used?)
+                        (= M u-col-count))
+      "Invalid U row count" {:u-col-count u-col-count
+                             :M M})
+    (when u-used?
+      (case jobu
+        :all-columns-u (when-not-error (= u-shape [M M])
+                         "U shape must match be MxM" {:u-shape u-shape
+                                                      :M M})
+        :left-singular-vectors-U (when-not-error (= u-shape [min-m-n M])
+                                   "U shape must be [min-m-n M]" {:u-shape u-shape
+                                                                  :min-M-N min-m-n})))
+
+    (when-not-error (jobvt-set jobvt)
+      "Invalid jobvt" {:jobvt jobvt
+                      :jobvt-set jobvt-set})
+
+    (when-not-error (or (not vt-used?)
+                        (= N vt-col-count))
+      "Invalid VT col count" {:vt-col-count vt-col-count
+                              :N N})
+
+    (when-not-error (jobvt-set jobvt)
+      "Invalid jobvt" {:jobvt jobvt
+                       :jobvt-set jobvt-set})
+
+    (when vt-used?
+      (case jobvt
+        :all-rows-vt (when-not-error (= vt-shape [N N])
+                       "VT shape must match be NxN" {:vt-shape vt-shape
+                                                     :N N})
+        :left-singular-VT (when-not-error (= vt-shape [min-m-n M])
+                            "VT shape must be [min-m-n N]" {:vt-shape vt-shape
+                                                            :min-M-N min-m-n})))
+
+    (when-not-error (not (= #{:left-singular-A :right-singular-A}
+                            #{jobu jobvt}))
+      "Both jobu and jobvt must not be set to place result in A"
+      {:jobu jobu
+       :jobvt jobvt})
+    (tm/singular-value-decomposition! stream jobu jobvt A s U VT)
+    (merge {:s s}
+           (when u-used?
+             {:U U})
+           (when vt-used?
+             {:VT VT})
+           (when (seq (filter #{:left-singular-A :right-singular-A}
+                              [jobu jobvt]))
+             {:A A}))))
