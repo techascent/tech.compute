@@ -79,10 +79,10 @@
 
 (defn LU-factorize!
   "This returns both A and the integer pivot table.
-  retuns:
+  returns:
   {:LU LU matrix written into A
    :pivots pivots}"
-  [dest-A & {:keys [ipiv]
+  [dest-A & {:keys [ipiv row-major?]
              :as options}]
   (let [dest-A (ct/ensure-tensor dest-A)
         _ (error-checking/ensure-cudnn-datatype (dtype/get-datatype dest-A) :LU-factorize!)
@@ -97,7 +97,7 @@
     (when-not-error (= :int32 (dtype/get-datatype ipiv))
       "Pivot table must be int32 datatype"
       {:pivot-datatype (dtype/get-datatype ipiv)})
-    (tm/LU-factorize! stream dest-A (ct/ensure-tensor ipiv))
+    (tm/LU-factorize! stream dest-A (ct/ensure-tensor ipiv) row-major?)
     {:LU dest-A
      :pivots ipiv}))
 
@@ -107,11 +107,18 @@
 
 (defn LU-solve!
   "Solve a matrix using an LU factored system"
-  [dest-B trans-cmd A pivots & {:as options}]
+  [dest-B trans-cmd A pivots & {:keys [row-major?] :as options}]
   (let [dest-B (ct/ensure-tensor dest-B)
+        dest-B (if (= 1 (count (ct/shape dest-B)))
+                 (if row-major?
+                   (ct/in-place-reshape dest-B [(first (ct/shape dest-B)) 1])
+                   (ct/in-place-reshape dest-B [1 (first (ct/shape dest-B))])
+                   )
+                 dest-B)
         A (ct/ensure-tensor A)
         pivots (ct/ensure-tensor pivots)
-        stream (defaults/infer-stream options dest-B A pivots)]
+        stream (defaults/infer-stream options dest-B A pivots)
+        ]
     (when-not-error (= :int32 (dtype/get-datatype pivots))
       "Pivot table must be int32 datatype"
       {:pivot-datatype (dtype/get-datatype pivots)})
@@ -133,8 +140,30 @@
                          (ct/ecount pivots))
         "Pivots must be max(n-rows,ncols)"
         {:pivot-shape (ct/shape pivots)})
-      (tm/LU-solve! stream dest-B trans-cmd A pivots)
+      (tm/LU-solve! stream dest-B trans-cmd A pivots row-major?)
       dest-B)))
+
+
+(defn LU-invert-matrix
+  "Invert the matrix, leaving it unchanged.  Returns inverted matrix.  row-major? is
+  there for testing; the most efficient thing will be to avoid using it in most cases."
+  [src-matrix & {:keys [identity row-major?] :as options}]
+  (let [inverse (if identity
+                  (ct/clone identity)
+                  (ct/identity (ct/shape src-matrix)))
+        {:keys [LU pivots]} (LU-factorize! (ct/clone src-matrix) :row-major? row-major?)]
+    (LU-solve! inverse :no-transpose LU pivots :row-major? row-major?)))
+
+
+(defn LU-solve-set-of-equations
+  "Solve Ax=y for x.
+  Should work.  The most efficent pathway will be to not specify row major."
+  [A y & {:keys [row-major?]}]
+  (let [{:keys [LU pivots]} (LU-factorize! (ct/clone A) :row-major? row-major?)]
+    (LU-solve! (ct/clone y) (if row-major?
+                              :no-transpose
+                              :transpose)
+               LU pivots :row-major? row-major?)))
 
 
 (def jobu-set

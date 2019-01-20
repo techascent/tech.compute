@@ -347,43 +347,68 @@
       (throw (ex-info "Unable to find solve fn for B datatype:"
                       {:datatype (dtype/get-datatype dest-B)}))))
 
-  (LU-factorize! [stream dest-A dest-ipiv]
+  (LU-factorize! [stream dest-A dest-ipiv row-major?]
     (if-let [factor-fn (get (jna-lapack-fn-map) [(dtype/get-datatype dest-A) :getrf])]
       (cpu-driver/with-stream-dispatch stream
-        (let [[a-row-count a-col-count] (ct/shape dest-A)
-              [n-ipiv-rows] (ct/shape dest-ipiv)
-              fn-retval (int-array 1)
-              _ (factor-fn a-col-count a-row-count (ct/tensor->buffer dest-A)
-                           a-col-count (ct/tensor->buffer dest-ipiv)
-                           fn-retval)
-              retval (aget fn-retval 0)]
-          (cond
-            (= retval 0) {:A dest-A :ipiv dest-ipiv}
-            (< retval 0) (throw (ex-info "I-th argument error:" {:i retval}))
-            (> retval 0) (throw (ex-info "U is singular" {:column retval})))))
+        ;;We have to make class to do transpose or clone in this thread.
+        (ct-defaults/with-stream (cpu-driver/main-thread-cpu-stream)
+          (let [orig-A dest-A
+                dest-A (if row-major?
+                         (-> dest-A
+                             (ct/transpose [1 0])
+                             (ct/clone))
+                         dest-A)
+                [a-row-count a-col-count] (ct/shape dest-A)
+                [n-ipiv-rows] (ct/shape dest-ipiv)
+                fn-retval (int-array 1)
+                _ (factor-fn a-col-count a-row-count (ct/tensor->buffer dest-A)
+                             a-col-count (ct/tensor->buffer dest-ipiv)
+                             fn-retval)
+                retval (aget fn-retval 0)]
+            (cond
+              (= retval 0) {:LU (if row-major?
+                                  (ct/assign! orig-A (ct/transpose dest-A [1 0]))
+                                  dest-A)
+                            :pivots dest-ipiv}
+              (< retval 0) (throw (ex-info "I-th argument error:" {:i retval}))
+              (> retval 0) (throw (ex-info "U is singular" {:column retval}))))))
       (throw (ex-info "Unable to find decomp function for tensor datatype:"
                       {:datatype (dtype/get-datatype dest-A)}))))
 
 
-  (LU-solve! [stream dest-B trans A ipiv]
+  (LU-solve! [stream dest-B trans A ipiv row-major?]
     (if-let [solve-fn (get (jna-lapack-fn-map) [(dtype/get-datatype dest-B) :getrs])]
       (cpu-driver/with-stream-dispatch stream
-        (let [trans-cmd (lapack-trans->fortran trans)
-              [a-row-count a-col-count] (ct/shape A)
-              [b-row-count b-col-count] (ct/shape dest-B)
-              fn-retval (int-array 1)
-              _ (solve-fn trans-cmd
-                          a-row-count b-row-count
-                          (ct/tensor->buffer A)
-                          a-col-count
-                          (ct/tensor->buffer ipiv)
-                          (ct/tensor->buffer dest-B)
-                          b-col-count
-                          fn-retval)
-              retval (aget fn-retval 0)]
-          (cond
-            (= 0 retval) dest-B
-            (< retval 0) (throw (ex-info "ith argument had error" {:i retval})))))
+        (ct-defaults/with-stream (cpu-driver/main-thread-cpu-stream)
+          (let [
+                trans-cmd (lapack-trans->fortran trans)
+
+                A (if row-major?
+                    (-> (ct/transpose A [1 0])
+                        (ct/clone))
+                    A)
+                orig-B dest-B
+                dest-B (if row-major?
+                         (-> (ct/transpose dest-B [1 0])
+                             (ct/clone))
+                         dest-B)
+                [a-row-count a-col-count] (ct/shape A)
+                [b-row-count b-col-count] (ct/shape dest-B)
+                fn-retval (int-array 1)
+                _ (solve-fn trans-cmd
+                            a-row-count b-row-count
+                            (ct/tensor->buffer A)
+                            a-col-count
+                            (ct/tensor->buffer ipiv)
+                            (ct/tensor->buffer dest-B)
+                            b-col-count
+                            fn-retval)
+                retval (aget fn-retval 0)]
+            (cond
+              (= 0 retval) (if row-major?
+                             (ct/assign! orig-B (ct/transpose dest-B [1 0]))
+                             dest-B)
+              (< retval 0) (throw (ex-info "ith argument had error" {:i retval}))))))
       (throw (ex-info "Failed to find lu solve for datatype" {:datatype (dtype/get-datatype dest-B)}))))
 
 

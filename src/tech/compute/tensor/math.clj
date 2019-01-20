@@ -91,13 +91,17 @@ dest-B: Matrix to solve.
 upload: :upper or :lower depending on if A is upper or lower.
 A: cholesky-decomposed matrix A.")
 
-  (LU-factorize! [stream dest-A dest-ipiv]
+  (LU-factorize! [stream dest-A dest-ipiv row-major?]
     "LU factorize with dest-a being the matrix to solve that receives the answer and
-dest-ipiv being and integer tensor that receives the pivot indices")
+dest-ipiv being and integer tensor that receives the pivot indices.
+column-major? indicates to factorize as if the matrix was provided in column-major form.
+This is not the default and may impose a performance penalty if the underlying
+system is column major and does not allow for changes.")
 
-  (LU-solve! [stream dest-B trans A ipiv]
+  (LU-solve! [stream dest-B trans A ipiv row-major?]
     "Solve using LU-factored A (possibly transposed) and pivot ary.  B is matrix to solve and will
 contain the solution matrix.
+Row-major implies a performance penalty for base lapack systems.
 trans: one of - [:no-transpose :transpose :conjugate-transpose]")
 
   (singular-value-decomposition! [stream jobu jobvt A s U VT]
