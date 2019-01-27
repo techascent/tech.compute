@@ -59,7 +59,9 @@ In general we want as much error checking and analysis done in this file as oppo
             [tech.compute.tensor.defaults :as defaults]
             [tech.compute.tensor.error-checking :as error-checking]
             [tech.compute.tensor.details :as details]
-            [tech.compute.registry :as registry])
+            [tech.compute.registry :as registry]
+            [clojure.core.matrix.macros :refer [c-for]])
+  (:refer-clojure :exclude [identity])
   (:import [java.io Writer]))
 
 
@@ -889,3 +891,24 @@ projecting to the surface of the hypersphere like normalize does, do a <= operat
 (defmethod print-method Tensor
   [tens w]
   (.write ^Writer w (tensor->string tens)))
+
+
+(defn identity
+  "Create an identity matrix.  Argument can be either
+  a 2d shape or a number.  options are forwarded to ->tensor."
+  [item-shape & options]
+  (let [item-shape (if (number? item-shape)
+                     [item-shape item-shape]
+                     item-shape)]
+    (when-not-error (= 2 (count item-shape))
+      "Identity not defined for items that are not 2d"
+      {:item-shape item-shape})
+    (let [[n-rows n-cols] item-shape
+          n-rows (int n-rows)
+          n-cols (int n-cols)
+          num-setters (min n-rows n-cols)
+          retval (apply new-tensor item-shape options)
+          vec-setter (assoc retval :dimensions
+                            (dims/dimensions [num-setters] :strides [(+ n-cols 1)]))]
+      (assign! vec-setter 1)
+      retval)))

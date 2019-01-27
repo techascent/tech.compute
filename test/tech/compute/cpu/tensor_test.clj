@@ -12,9 +12,11 @@
             [tech.compute.cpu.tensor-math :as cpu-tm]
             [tech.compute.tensor.defaults :as ct-defaults]
             [tech.compute.tensor :as ct]
+            [tech.compute.tensor.math :as ct-tm]
             [tech.compute.driver :as compute-drv]
             [tech.datatype :as dtype]
-            [tech.datatype.jna :as dtype-jna]))
+            [tech.datatype.jna :as dtype-jna]
+            [clojure.core.matrix :as m]))
 
 
 (use-fixtures :each test-wrapper)
@@ -158,3 +160,11 @@
     (let [test-tensor (ct/->tensor [[1 2 3 4]] :container-fn dtype-jna/make-typed-pointer)]
       (is (ct/tensor? test-tensor))
       (is (= [1 4] (ct/shape test-tensor))))))
+
+
+(def-double-float-test cholesky-decomp
+  (verify-tensor/cholesky-decomp (driver) *datatype*))
+
+
+(deftest LU-decomp
+  (verify-tensor/LU-decomp (driver) *datatype*))

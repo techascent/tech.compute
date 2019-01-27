@@ -77,3 +77,45 @@ c = alpha * (trans-a? a) * (trans-b? b) + beta * c")
   (rand! [stream dest distribution]
     "Generate a pool of random numbers over this distribution.  All elements of dest are assigned
 to randomly out of the pool."))
+
+
+(defprotocol LAPACK
+  "Operations corresponding to the lapack set of functions."
+  (cholesky-factorize! [stream dest-A upload]
+    "dpotrf bindings.  Dest is both input and result argument.
+dest: io argument, corresponding to matrix that is being factorized.
+upload: :upper or :lower, store U or L.")
+  (cholesky-solve! [stream dest-B upload A]
+    "dpotrs bindings.
+dest-B: Matrix to solve.
+upload: :upper or :lower depending on if A is upper or lower.
+A: cholesky-decomposed matrix A.")
+
+  (LU-factorize! [stream dest-A dest-ipiv row-major?]
+    "LU factorize with dest-a being the matrix to solve that receives the answer and
+dest-ipiv being and integer tensor that receives the pivot indices.
+column-major? indicates to factorize as if the matrix was provided in column-major form.
+This is not the default and may impose a performance penalty if the underlying
+system is column major and does not allow for changes.")
+
+  (LU-solve! [stream dest-B trans A ipiv row-major?]
+    "Solve using LU-factored A (possibly transposed) and pivot ary.  B is matrix to solve and will
+contain the solution matrix.
+Row-major implies a performance penalty for base lapack systems.
+trans: one of - [:no-transpose :transpose :conjugate-transpose]")
+
+  (singular-value-decomposition! [stream jobu jobvt A s U VT]
+    "Computes the singular value decomposition (SVD) of a real
+ M-by-N matrix A, optionally computing the left and/or right singular
+ vectors. The SVD is written
+
+      A = U * SIGMA * transpose(V)
+
+ where SIGMA is an M-by-N matrix which is zero except for its
+ min(m,n) diagonal elements, U is an M-by-M orthogonal matrix, and
+ V is an N-by-N orthogonal matrix.  The diagonal elements of SIGMA
+ are the singular values of A; they are real and non-negative, and
+ are returned in descending order.  The first min(m,n) columns of
+ U and V are the left and right singular vectors of A.
+
+ Note that the routine returns V**T, not V."))

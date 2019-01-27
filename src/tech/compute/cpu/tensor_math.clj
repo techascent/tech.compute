@@ -25,9 +25,11 @@
                      ] :as nio-access]
             [tech.compute.cpu.jna-blas :as jna-blas]
             [tech.datatype.jna :as dtype-jna]
-            [tech.compute.cpu.jna-blas :as jna-blas])
+            [tech.compute.cpu.jna-blas :as jna-blas]
+            [tech.compute.cpu.jna-lapack :as jna-lapack])
   (:import [tech.compute.cpu.driver CPUStream]
-           [java.security SecureRandom]))
+           [java.security SecureRandom]
+           [com.sun.jna Pointer]))
 
 
 
@@ -39,84 +41,113 @@
   [tensor] (ct/tensor->dimensions tensor))
 
 
-(def ^:private lock-object (Object.))
+(defn assign-constant-map []
+  @(parallel/require-resolve 'tech.compute.cpu.tensor-math.assignment/assign-constant-map))
 
 
-(defmacro ^:private threadsafe-constant
-  [& body]
-  `(memoize
-    (fn []
-      ;;There is no guarantee that require or resolve, called in many threads at once
-      ;;return what you think they might.  So we ensure exactly one thread at a time in
-      ;;this code.
-      (locking lock-object
-        ~@body))))
+(defn assign!-map []
+  @(parallel/require-resolve 'tech.compute.cpu.tensor-math.assignment/assign!-map))
 
 
-(def assign-constant-map
-  (threadsafe-constant
-   (require '[tech.compute.cpu.tensor-math.assignment])
-   @(resolve 'tech.compute.cpu.tensor-math.assignment/assign-constant-map)))
+(defn unary-op-table []
+  @(parallel/require-resolve 'tech.compute.cpu.tensor-math.unary-op/unary-op-table))
 
 
-(def assign!-map
-  (threadsafe-constant
-   (require '[tech.compute.cpu.tensor-math.assignment])
-   @(resolve 'tech.compute.cpu.tensor-math.assignment/assign!-map)))
+(defn binary-accum-constant-table []
+  @(parallel/require-resolve 'tech.compute.cpu.tensor-math.binary-accum/binary-accum-constant-table))
 
 
-(def unary-op-table
-  (threadsafe-constant
-   (require '[tech.compute.cpu.tensor-math.unary-op])
-   @(resolve 'tech.compute.cpu.tensor-math.unary-op/unary-op-table)))
+(defn binary-accum-table []
+  @(parallel/require-resolve 'tech.compute.cpu.tensor-math.binary-accum/binary-accum-table))
 
 
-(def binary-accum-constant-table
-  (threadsafe-constant
-   (require '[tech.compute.cpu.tensor-math.binary-accum])
-   @(resolve 'tech.compute.cpu.tensor-math.binary-accum/binary-accum-constant-table)))
+(defn binary-op-constant-table []
+  @(parallel/require-resolve 'tech.compute.cpu.tensor-math.binary-op/binary-op-constant-table))
 
 
-(def binary-accum-table
-  (threadsafe-constant
-   (require '[tech.compute.cpu.tensor-math.binary-accum])
-   @(resolve 'tech.compute.cpu.tensor-math.binary-accum/binary-accum-table)))
+(defn binary-op-table []
+  @(parallel/require-resolve 'tech.compute.cpu.tensor-math.binary-op/binary-op-table))
 
 
-(def binary-op-constant-table
-  (threadsafe-constant
-   (require '[tech.compute.cpu.tensor-math.binary-op])
-   @(resolve 'tech.compute.cpu.tensor-math.binary-op/binary-op-constant-table)))
+(defn ternary-op-table []
+  @(parallel/require-resolve 'tech.compute.cpu.tensor-math.ternary-op/ternary-op-table))
 
 
-(def binary-op-table
-  (threadsafe-constant
-   (require '[tech.compute.cpu.tensor-math.binary-op])
-   @(resolve 'tech.compute.cpu.tensor-math.binary-op/binary-op-table)))
+(defn unary-reduce-table []
+  @(parallel/require-resolve 'tech.compute.cpu.tensor-math.unary-reduce/unary-reduce-table))
 
 
-(def ternary-op-table
-  (threadsafe-constant
-   (require '[tech.compute.cpu.tensor-math.ternary-op])
-   @(resolve 'tech.compute.cpu.tensor-math.ternary-op/ternary-op-table)))
-
-
-(def unary-reduce-table
-  (threadsafe-constant
-   (require '[tech.compute.cpu.tensor-math.unary-reduce])
-   @(resolve 'tech.compute.cpu.tensor-math.unary-reduce/unary-reduce-table)))
-
-
-(def blas-fn-map
-  (threadsafe-constant
-   (require '[tech.compute.cpu.tensor-math.blas])
-   @(resolve 'tech.compute.cpu.tensor-math.blas/blas-fn-map)))
+(defn blas-fn-map []
+  @(parallel/require-resolve 'tech.compute.cpu.tensor-math.blas/blas-fn-map))
 
 
 (defn- jna-blas-fn-map
   []
   {[:float32 :gemm] (partial jna-blas/cblas_sgemm :row-major)
    [:float64 :gemm] (partial jna-blas/cblas_dgemm :row-major)})
+
+
+(defn- jna-lapack-fn-map
+  []
+  {[:float32 :potrf] jna-lapack/spotrf_
+   [:float64 :potrf] jna-lapack/dpotrf_
+   [:float32 :potrs] jna-lapack/spotrs_
+   [:float64 :potrs] jna-lapack/dpotrs_
+
+   [:float32 :getrf] jna-lapack/sgetrf_
+   [:float64 :getrf] jna-lapack/dgetrf_
+   [:float32 :getrs] jna-lapack/sgetrs_
+   [:float64 :getrs] jna-lapack/dgetrs_
+
+   [:float32 :gesvd] jna-lapack/sgesvd_
+   [:float64 :gesvd] jna-lapack/dgesvd_})
+
+
+(defn- lapack-upload->fortran
+  [upload-kwd]
+  (if-let [retval (get
+                   {:upper "L"
+                    :lower "U"}
+                   upload-kwd)]
+    retval
+    (throw (ex-info "Unrecognized upload command" {:upload-kwd upload-kwd}))))
+
+
+(defn- lapack-trans->fortran
+  [trans-kwd]
+  (if-let [retval (get {:no-transpose "N"
+                        :transpose "T"
+                        :conjugate-transpose "C"}
+                       trans-kwd)]
+    retval
+    (throw (ex-info "Failed to get correct transpose cmd" {:trans-kwd trans-kwd}))))
+
+
+(def jobu-table
+  {:all-columns-U "A"
+   :left-singular-U "S"
+   :left-singular-A "O"
+   :no-singular "N"})
+
+(def jobvt-table
+  {:all-rows-VT "A"
+   :right-singular-VT "S"
+   :right-singular-A "O"
+   :no-singular "N"})
+
+
+(defn- jobu->fortran
+  [jobu]
+  (if-let [retval (get jobu-table jobu)]
+    retval
+    (throw (ex-info "Unrecognized jobu" {:jobu jobu}))))
+
+
+(defn- jobvt->fortran
+  [jobvt]
+  (if-let [retval (get jobvt-table jobvt)]
+    retval
+    (throw (ex-info "Unrecognized jobu" {:jobvt jobvt}))))
 
 
 (extend-type CPUStream
@@ -273,7 +304,158 @@
                                          (* (.nextFloat rand-gen)
                                             range)))))
         :else
-        (throw (Exception. (str "Unrecognized distribution: " distribution)))))))
+        (throw (Exception. (str "Unrecognized distribution: " distribution))))))
+
+
+  tm/LAPACK
+  (cholesky-factorize! [stream dest-A upload]
+    (if-let [decom-fn (get (jna-lapack-fn-map) [(dtype/get-datatype dest-A) :potrf])]
+      (cpu-driver/with-stream-dispatch stream
+        (let [[row-count column-count] (ct/shape dest-A)
+              fn-retval-ary (int-array 1)
+              _ (decom-fn (lapack-upload->fortran upload)
+                          (int-array [row-count])
+                          (ct/tensor->buffer dest-A)
+                          (int-array [column-count])
+                          fn-retval-ary)
+              fn-retval (aget fn-retval-ary 0)]
+          (when-not (= 0 fn-retval)
+            (if (< fn-retval 0)
+              (throw (ex-info "Internal error, argument incorrect:" {:argument (* -1 fn-retval)}))
+              (throw (ex-info "A is not positive definite; detected at column" {:column fn-retval}))))
+          dest-A))
+      (throw (ex-info "Unable to find decomp function for tensor datatype:"
+                      {:datatype (dtype/get-datatype dest-A)}))))
+
+  (cholesky-solve! [stream dest-B upload A]
+    (if-let [solve-fn (get (jna-lapack-fn-map) [(dtype/get-datatype dest-B) :potrs])]
+      (cpu-driver/with-stream-dispatch stream
+        (let [[a-row-count a-col-count] (ct/shape A)
+              [b-row-count b-col-count] (ct/shape dest-B)
+              fn-retval (int-array 1)
+              _ (solve-fn (lapack-upload->fortran upload)
+                          a-row-count b-row-count
+                          (ct/tensor->buffer A)
+                          a-col-count
+                          (ct/tensor->buffer dest-B)
+                          b-col-count
+                          fn-retval)
+              fn-retval (aget fn-retval 0)]
+          (when (< fn-retval 0)
+            (throw (ex-info "Internal error, argument incorrect:" {:argument (* -1 fn-retval)})))
+          dest-B))
+      (throw (ex-info "Unable to find solve fn for B datatype:"
+                      {:datatype (dtype/get-datatype dest-B)}))))
+
+  (LU-factorize! [stream dest-A dest-ipiv row-major?]
+    (if-let [factor-fn (get (jna-lapack-fn-map) [(dtype/get-datatype dest-A) :getrf])]
+      (cpu-driver/with-stream-dispatch stream
+        ;;We have to make class to do transpose or clone in this thread.
+        (ct-defaults/with-stream (cpu-driver/main-thread-cpu-stream)
+          (let [orig-A dest-A
+                dest-A (if row-major?
+                         (-> dest-A
+                             (ct/transpose [1 0])
+                             (ct/clone))
+                         dest-A)
+                [a-row-count a-col-count] (ct/shape dest-A)
+                [n-ipiv-rows] (ct/shape dest-ipiv)
+                fn-retval (int-array 1)
+                _ (factor-fn a-col-count a-row-count (ct/tensor->buffer dest-A)
+                             a-col-count (ct/tensor->buffer dest-ipiv)
+                             fn-retval)
+                retval (aget fn-retval 0)]
+            (cond
+              (= retval 0) {:LU (if row-major?
+                                  (ct/assign! orig-A (ct/transpose dest-A [1 0]))
+                                  dest-A)
+                            :pivots dest-ipiv}
+              (< retval 0) (throw (ex-info "I-th argument error:" {:i retval}))
+              (> retval 0) (throw (ex-info "U is singular" {:column retval}))))))
+      (throw (ex-info "Unable to find decomp function for tensor datatype:"
+                      {:datatype (dtype/get-datatype dest-A)}))))
+
+
+  (LU-solve! [stream dest-B trans A ipiv row-major?]
+    (if-let [solve-fn (get (jna-lapack-fn-map) [(dtype/get-datatype dest-B) :getrs])]
+      (cpu-driver/with-stream-dispatch stream
+        (ct-defaults/with-stream (cpu-driver/main-thread-cpu-stream)
+          (let [
+                trans-cmd (lapack-trans->fortran trans)
+
+                A (if row-major?
+                    (-> (ct/transpose A [1 0])
+                        (ct/clone))
+                    A)
+                orig-B dest-B
+                dest-B (if row-major?
+                         (-> (ct/transpose dest-B [1 0])
+                             (ct/clone))
+                         dest-B)
+                [a-row-count a-col-count] (ct/shape A)
+                [b-row-count b-col-count] (ct/shape dest-B)
+                fn-retval (int-array 1)
+                _ (solve-fn trans-cmd
+                            a-row-count b-row-count
+                            (ct/tensor->buffer A)
+                            a-col-count
+                            (ct/tensor->buffer ipiv)
+                            (ct/tensor->buffer dest-B)
+                            b-col-count
+                            fn-retval)
+                retval (aget fn-retval 0)]
+            (cond
+              (= 0 retval) (if row-major?
+                             (ct/assign! orig-B (ct/transpose dest-B [1 0]))
+                             dest-B)
+              (< retval 0) (throw (ex-info "ith argument had error" {:i retval}))))))
+      (throw (ex-info "Failed to find lu solve for datatype" {:datatype (dtype/get-datatype dest-B)}))))
+
+
+  (singular-value-decomposition! [stream jobu jobvt A s U VT]
+    (if-let [lapack-fn (get (jna-lapack-fn-map) [(dtype/get-datatype A) :gesvd])]
+      (cpu-driver/with-stream-dispatch stream
+        (let [jobu (jobu->fortran jobu)
+              jobvt (jobvt->fortran jobvt)
+              retval-data (int-array [1])
+              work (dtype/make-array-of-type (dtype/get-datatype A) [1])
+              [N M] (ct/shape A)
+              [u-row-count u-col-count] (if U
+                                          (ct/shape U)
+                                          [0 0])
+              [vt-row-count vt-col-count] (if VT
+                                            (ct/shape VT)
+                                            [0 0])
+              A (ct/tensor->buffer A)
+              s (ct/tensor->buffer s)
+              U (if U
+                  (ct/tensor->buffer U)
+                  (Pointer. 0))
+              VT (if VT
+                   (ct/tensor->buffer VT)
+                   (Pointer. 0))
+              lapack-closure #(lapack-fn jobu jobvt M N
+                                         A M
+                                         s
+                                         U
+                                         u-col-count
+                                         VT
+                                         vt-col-count
+                                         %1
+                                         %2
+                                         retval-data)
+              _ (lapack-closure work -1)
+              _ (when-not (= 0 (aget retval-data 0))
+                  (throw (ex-info "Failure in work query" {:retval (aget retval-data 0)})))
+              lwork (long (dtype/get-value work 0))
+              work (dtype/make-array-of-type (dtype/get-datatype A) lwork)
+              _ (lapack-closure work lwork)
+              retval (aget retval-data 0)]
+          (cond
+            (= retval 0) {:A A :s s :U U :VT VT}
+            (< retval 0) (throw (ex-info "i-th argument had an illegal value" {:ith retval}))
+            (> retval 0) (throw (ex-info "DBSQR did not converge" {:unconverged-superdiagonals retval})))))
+      (throw (ex-info "Failed to find SVD for datatype" {:datatype (dtype/get-datatype A)})))))
 
 
 (defn as-java-array

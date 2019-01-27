@@ -10,7 +10,9 @@
             [tech.resource :as resource]
             [tech.compute.verify.utils :as verify-utils]
             [tech.datatype.java-unsigned :as unsigned]
-            [tech.compute.tensor.defaults :as defaults]))
+            [tech.compute.tensor.defaults :as defaults]
+            [tech.compute.tensor.math :as ct-tm]
+            [tech.compute.tensor.lapack :as ct-lapack]))
 
 
 (defmacro tensor-context
@@ -685,3 +687,126 @@ for the cuda backend."
                    (map m/magnitude
                         (partition num-rows
                                    (ct/to-double-array src-tensor)))))))))
+
+
+(defn cholesky-decomp
+  [driver datatype]
+  (tensor-default-context
+   driver datatype
+   (let [test-A (ct/->tensor [[4 1 -1]
+                             [1 2 1]
+                             [-1 1 3]])
+        orig-A (ct/clone test-A)
+        ident (ct/->tensor [[1 0 0]
+                            [0 1 0]
+                            [0 0 1]])
+        inverse (ct/clone ident)
+        result (ct/new-tensor [3 3])]
+    (ct-lapack/cholesky-factorize! test-A :lower)
+    (ct-lapack/cholesky-solve! inverse :lower test-A)
+    (ct/gemm! result false false 1.0 orig-A inverse 0.0)
+    (is (m/equals (ct/to-core-matrix result)
+                  (ct/to-core-matrix ident)
+                  0.0001)))))
+
+
+(defn LU-decomp
+  [driver datatype]
+  (tensor-default-context
+   driver datatype
+   (testing "Basic matrix inversion"
+     (let [test-A (ct/->tensor [[4 1 -1]
+                                [1 2 1]
+                                [-1 1 3]])
+           orig-A (ct/clone test-A)
+           ident (ct/->tensor [[1 0 0]
+                               [0 1 0]
+                               [0 0 1]])
+           inverse (ct/clone ident)
+           result (ct/new-tensor [3 3])
+           {test-A :LU
+            pivots :pivots} (ct-lapack/LU-factorize! test-A)]
+       (ct-lapack/LU-solve! inverse :no-transpose test-A pivots)
+       (ct/gemm! result false false 1.0 orig-A inverse 0.0)
+       (is (m/equals (ct/to-core-matrix result)
+                     (ct/to-core-matrix ident)
+                     0.0001))))
+   (testing "LU inversion"
+     (let [orig-A-data [[8 2 9]
+                        [4 9 4]
+                        [6 7 9]]
+           ident-data [[1 0 0]
+                       [0 1 0]
+                       [0 0 1]]
+           another-example [[2 4 6]
+                            [0 -1 -8]
+                            [0 0 96]]
+           test-A (ct/->tensor orig-A-data)
+           ;;Note results are written into A...
+           test-A-dup (ct/clone test-A)
+           {:keys [LU pivots]} (ct-lapack/LU-factorize! test-A)
+           {LU-t :LU
+            pivots-t :pivots} (ct-lapack/LU-factorize! test-A-dup :row-major? true)
+           identity-matrix [[1 0 0]
+                            [0 1 0]
+                            [0 0 1]]
+           invert-matrix (fn [orig-data row-major?]
+                           (let [orig-tensor (ct/->tensor orig-data)]
+                             (->
+                              (ct/gemm! (ct/new-tensor [3 3]) false false 1.0
+                                        orig-tensor
+                                        (ct-lapack/LU-invert-matrix orig-tensor :row-major? row-major?)
+                                        0.0)
+                              ct/to-core-matrix)))]
+       ;;From https://imada.sdu.dk/~marco/DM559/Slides/dm559-lu.pdf
+       (is (m/equals [[8.000 2.000  9.000]
+                      [0.500 8.000 -0.500]
+                      [0.750 0.688  2.594]]
+                     (ct/to-core-matrix LU-t)
+                     0.001))
+       (is (m/equals [[9.000 0.222  0.889]
+                      [4.000 8.111  0.055]
+                      [9.000 5.000 -2.274]]
+                     (ct/to-core-matrix LU)
+                     0.001))
+
+       (is (m/equals [[8.000 2.000  9.000]
+                      [0.500 8.000 -0.500]
+                      [0.750 0.688  2.594]]
+                     (ct/to-core-matrix LU-t)
+                     0.001))
+
+       (is (m/equals identity-matrix
+                     (invert-matrix another-example false)
+                     0.001))
+
+       (is (m/equals identity-matrix
+                     (invert-matrix another-example true)
+                     0.001))
+
+
+       (is (m/equals identity-matrix
+                     (invert-matrix orig-A-data false)
+                     0.001))
+
+       (is (m/equals identity-matrix
+                     (invert-matrix orig-A-data true)
+                     0.001))))
+   (testing "LU solve equation"
+     (is (m/equals [1 0.5 -0.5]
+                   (-> (ct-lapack/LU-solve-set-of-equations (ct/->tensor [[1 1 1]
+                                                                          [4 3 -1]
+                                                                          [3 5 3]])
+                                                            (ct/->tensor [1 6 4]))
+                       (ct/as-vector)
+                       (ct/to-core-matrix))
+                   0.001))
+     (is (m/equals [1 0.5 -0.5]
+                   (-> (ct-lapack/LU-solve-set-of-equations (ct/->tensor [[1 1 1]
+                                                                          [4 3 -1]
+                                                                          [3 5 3]])
+                                                            (ct/->tensor [1 6 4])
+                                                            :row-major? true)
+                       (ct/as-vector)
+                       (ct/to-core-matrix))
+                   0.001)))))
