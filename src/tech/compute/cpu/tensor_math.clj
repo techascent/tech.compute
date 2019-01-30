@@ -29,7 +29,8 @@
             [tech.compute.cpu.jna-lapack :as jna-lapack])
   (:import [tech.compute.cpu.driver CPUStream]
            [java.security SecureRandom]
-           [com.sun.jna Pointer]))
+           [com.sun.jna Pointer]
+           [tech.compute.cpu UnaryOp BinaryOp UnaryReduce]))
 
 
 
@@ -79,6 +80,39 @@
 
 (defn blas-fn-map []
   @(parallel/require-resolve 'tech.compute.cpu.tensor-math.blas/blas-fn-map))
+
+
+(def ^:dynamic custom-op-table (atom {}))
+
+
+(defn add-unary-op!
+  [keywd unary-op]
+  (when-not (instance? UnaryOp unary-op)
+    (throw (ex-info "Operand is not a tech.compute.cpu.UnaryOp"
+                    {:operand unary-op})))
+  (swap! custom-op-table assoc [keywd] {:type :unary
+                                        :operand unary-op})
+  keywd)
+
+
+(defn add-binary-op!
+  [keywd binary-op]
+  (when-not (instance? BinaryOp binary-op)
+    (throw (ex-info "Operand is not a tech.compute.cpu.BinaryOp"
+                    {:operand binary-op})))
+  (swap! custom-op-table assoc [keywd] {:type :binary
+                                        :operand binary-op})
+  keywd)
+
+
+(defn add-unary-reduce!
+  [keywd unary-reduce-op]
+  (when-not (instance? UnaryReduce unary-reduce-op)
+    (throw (ex-info "Operand is not a tech.compute.cpu.BinaryOp"
+                    {:operand unary-reduce-op})))
+  (swap! custom-op-table assoc [keywd] {:type :unary-reduce
+                                        :operand unary-reduce-op})
+  keywd)
 
 
 (defn- jna-blas-fn-map
@@ -173,40 +207,96 @@
 
   (unary-accum! [stream dest alpha op]
     (cpu-driver/with-stream-dispatch stream
-      ((get-in (unary-op-table) [[(dtype/get-datatype dest) op] :unary-accum!])
-       (->buffer dest) (->dimensions dest) alpha (ct/ecount dest))))
+      (if-let [built-in (get-in (unary-op-table) [[(dtype/get-datatype dest) op] :unary-accum!])]
+        (built-in
+         (->buffer dest) (->dimensions dest) alpha (ct/ecount dest))
+        (if-let [{:keys [type operand]} (get @custom-op-table op)]
+          (do
+            (when-not (= type :unary)
+              (throw (ex-info "Custom operand is not a unary op"
+                              {:op-type type})))
+            (let [built-in (get-in (unary-op-table) [[(dtype/get-datatype dest) :custom] :unary-accum!])]
+              (built-in
+               (->buffer dest) (->dimensions dest) alpha (ct/ecount dest) operand)))
+          (throw (ex-info "Failed to find operand" {:operand op}))))))
 
   (unary-op! [stream dest x alpha op]
     (cpu-driver/with-stream-dispatch stream
-      ((get-in (unary-op-table) [[(dtype/get-datatype dest) op] :unary-op!])
-       (->buffer dest) (->dimensions dest) (->buffer x) (->dimensions x) alpha
-       (max (ct/ecount dest) (ct/ecount x)))))
+      (if-let [built-in (get-in (unary-op-table) [[(dtype/get-datatype dest) op] :unary-op!])]
+        (built-in
+         (->buffer dest) (->dimensions dest) (->buffer x) (->dimensions x) alpha
+         (max (ct/ecount dest) (ct/ecount x)))
+        (if-let [{:keys [type operand]} (get @custom-op-table op)]
+          (do
+            (when-not (= type :unary)
+              (throw (ex-info "Custom operand is not a unary op"
+                              {:op-type type})))
+            (let [built-in (get-in (unary-op-table) [[(dtype/get-datatype dest) :custom] :unary-op!])]
+              (built-in
+               (->buffer dest) (->dimensions dest) alpha (ct/ecount dest) operand)))
+          (throw (ex-info "Failed to find operand" {:operand op}))))))
 
   (binary-accum-constant! [stream dest dest-alpha scalar operation reverse-operands?]
     (cpu-driver/with-stream-dispatch stream
-      ((get (binary-accum-constant-table) [(dtype/get-datatype dest) operation
-                                            reverse-operands?])
-       (->buffer dest) (->dimensions dest) dest-alpha
-       scalar (ct/ecount dest))))
+      (if-let [built-in (get (binary-accum-constant-table) [(dtype/get-datatype dest) operation
+                                                            reverse-operands?])]
+        (built-in
+         (->buffer dest) (->dimensions dest) dest-alpha
+         scalar (ct/ecount dest))
+        (if-let [{:keys [type operand]} (get @custom-op-table operation)]
+          (do
+            (when-not (= type :binary)
+              (throw (ex-info "Custom operand is not a binary op"
+                              {:op-type type})))
+            (let [built-in (get (binary-accum-constant-table) [(dtype/get-datatype dest) :custom])]
+              (built-in (->buffer dest) (->dimensions dest) dest-alpha
+                        scalar (ct/ecount dest)
+                        operand reverse-operands?)))
+          (throw (ex-info "Failed to find operand" {:operand operation}))))))
 
   (binary-op-constant! [stream dest x x-alpha scalar operation reverse-operands?]
     (cpu-driver/with-stream-dispatch stream
-      ((get (binary-op-constant-table) [(dtype/get-datatype dest) operation
-                                         reverse-operands?])
-       (->buffer dest) (->dimensions dest)
-       (->buffer x) (->dimensions x) x-alpha
-       scalar (max (ct/ecount dest) (ct/ecount x)))))
+      (if-let [built-in (get (binary-op-constant-table) [(dtype/get-datatype dest) operation
+                                                         reverse-operands?])]
+        (built-in
+         (->buffer dest) (->dimensions dest)
+         (->buffer x) (->dimensions x) x-alpha
+         scalar (max (ct/ecount dest) (ct/ecount x)))
+        (if-let [{:keys [type operand]} (get @custom-op-table operation)]
+          (do
+            (when-not (= type :binary)
+              (throw (ex-info "Custom operand is not a unary op"
+                              {:op-type type})))
+            (let [built-in (get (binary-op-constant-table) [(dtype/get-datatype dest) :custom])]
+              (built-in
+               (->buffer dest) (->dimensions dest)
+               (->buffer x) (->dimensions x) x-alpha
+               scalar (max (ct/ecount dest) (ct/ecount x))
+               operand reverse-operands?)))
+          (throw (ex-info "Failed to find operand" {:operand operation}))))))
 
   (binary-accum! [stream dest dest-alpha y y-alpha operation
                   reverse-operands? dest-requires-cas?]
     (let [n-elems (max (ct/ecount dest) (ct/ecount y))]
       (if dest-requires-cas?
         (cpu-driver/with-stream-dispatch stream
-          ((get (binary-accum-table) [(dtype/get-datatype dest) operation
-                                       reverse-operands?])
-           (->buffer dest) (->dimensions dest) dest-alpha
-           (->buffer y) (->dimensions y) y-alpha
-           n-elems))
+          (if-let [built-in (get (binary-accum-table) [(dtype/get-datatype dest) operation
+                                                       reverse-operands?])]
+            (built-in
+             (->buffer dest) (->dimensions dest) dest-alpha
+             (->buffer y) (->dimensions y) y-alpha
+             n-elems)
+            (if-let [{:keys [type operand]} (get @custom-op-table operation)]
+              (do
+                (when-not (= type :binary)
+                  (throw (ex-info "Custom operand is not a unary op"
+                                  {:op-type type})))
+                (let [built-in (get (binary-accum-table) [(dtype/get-datatype dest) :custom])]
+                  (built-in
+                   (->buffer dest) (->dimensions dest) dest-alpha
+                   (->buffer y) (->dimensions y) y-alpha
+                   n-elems operand reverse-operands?)))
+              (throw (ex-info "Failed to find operand" {:operand operation})))))
         ;;If the operation does not require a CAS op then we can use the full
         ;;parallelism of the binary op.  Unfortunately if it does then we have to do a
         ;;lot of things in single-threaded mode.
@@ -216,11 +306,26 @@
 
   (binary-op! [stream dest x x-alpha y y-alpha operation]
     (cpu-driver/with-stream-dispatch stream
-      ((get (binary-op-table) [(dtype/get-datatype dest) operation])
-       (->buffer dest) (->dimensions dest)
-       (->buffer x) (->dimensions x) x-alpha
-       (->buffer y) (->dimensions y) y-alpha
-       (max (ct/ecount x) (ct/ecount y) (ct/ecount dest)))))
+      (if-let [built-in (get (binary-op-table) [(dtype/get-datatype dest) operation])]
+        (built-in
+         (->buffer dest) (->dimensions dest)
+         (->buffer x) (->dimensions x) x-alpha
+         (->buffer y) (->dimensions y) y-alpha
+         (max (ct/ecount x) (ct/ecount y) (ct/ecount dest)))
+        (if-let [{:keys [type operand]} (get @custom-op-table operation)]
+          (do
+            (when-not (= type :binary)
+              (throw (ex-info "Custom operand is not a unary op"
+                              {:op-type type})))
+            (let [built-in (get (binary-op-table) [(dtype/get-datatype dest) :custom])]
+              (built-in
+               (->buffer dest) (->dimensions dest)
+               (->buffer x) (->dimensions x) x-alpha
+               (->buffer y) (->dimensions y) y-alpha
+               (max (ct/ecount x) (ct/ecount y) (ct/ecount dest))
+               operand)))
+          (throw (ex-info "Failed to find operand" {:operand operation}))))))
+
 
   (ternary-op! [stream dest x x-alpha y y-alpha z z-alpha operation]
     (cpu-driver/with-stream-dispatch stream

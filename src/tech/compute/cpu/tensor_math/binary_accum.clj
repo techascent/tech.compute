@@ -15,7 +15,8 @@
             [tech.datatype.java-unsigned :as unsigned]
             [tech.datatype.java-primitive :as primitive]
             [clojure.core.matrix.macros :refer [c-for]]
-            [tech.compute.tensor :as ct]))
+            [tech.compute.tensor :as ct])
+  (:import [tech.compute.cpu BinaryOp]))
 
 
 (set! *unchecked-math* :warn-on-boxed)
@@ -45,12 +46,52 @@
                                             scalar#))))))))
 
 
+(defmacro ^:private custom-binary-accum-constant!-impl
+  [datatype]
+  `(fn [dest# dest-dims# dest-alpha#
+        scalar#
+        n-elems#
+        reverse-operation?#
+        custom-op#]
+     (let [n-elems# (long n-elems#)
+           dest# (item->typed-nio-buffer ~datatype dest#)
+           dest-idx->address# (get-elem-dims->address dest-dims#
+                                                      (get dest-dims# :shape))
+           scalar# (double (unsigned/datatype->cast-fn :ignored ~datatype scalar#))
+           dest-alpha# (unsigned/datatype->cast-fn :ignored ~datatype dest-alpha#)
+           ^BinaryOp custom-op# custom-op#]
+       (if reverse-operation?#
+         (c-for [idx# 0 (< idx# n-elems#) (inc idx#)]
+                (let [dest-idx# (.idx_to_address dest-idx->address# idx#)]
+                  (b-put dest# dest-idx#
+                         (store-datatype-cast-fn
+                          ~datatype
+                          (.op custom-op#
+                               scalar#
+                               (double
+                                (* (read-datatype-cast-fn
+                                    ~datatype
+                                    (b-get dest# dest-idx#)) dest-alpha#)))))))
+         (c-for [idx# 0 (< idx# n-elems#) (inc idx#)]
+                (let [dest-idx# (.idx_to_address dest-idx->address# idx#)]
+                  (b-put dest# dest-idx#
+                         (store-datatype-cast-fn
+                          ~datatype
+                          (.op custom-op#
+                               (double (* (read-datatype-cast-fn
+                                           ~datatype
+                                           (b-get dest# dest-idx#)) dest-alpha#))
+                               scalar#)))))))))
+
+
 (defmacro binary-accum-constant-table
   []
-  (->> (for [dtype all-datatypes
-             op ct/binary-operations
-             rev-ops? [true false]]
-         [[dtype op rev-ops?] `(binary-accum-constant!-impl ~dtype ~op ~rev-ops?)])
+  (->> (concat (for [dtype all-datatypes
+                     op ct/binary-operations
+                     rev-ops? [true false]]
+                 [[dtype op rev-ops?] `(binary-accum-constant!-impl ~dtype ~op ~rev-ops?)])
+               (for [dtype all-datatypes]
+                 [[dtype :custom] `(custom-binary-accum-constant!-impl ~dtype)]))
        (into {})))
 
 
@@ -88,12 +129,63 @@
                                                       y-alpha#)))))))))
 
 
+(defmacro ^:private custom-binary-accum!-impl
+  [datatype]
+  `(fn [dest# dest-dims# dest-alpha#
+        y# y-dims# y-alpha#
+        n-elems#
+        custom-op#
+        reverse-operands?#]
+     (let [n-elems# (long n-elems#)
+           max-shape# (max-shape-from-dimensions dest-dims# y-dims#)
+           dest# (item->typed-nio-buffer ~datatype dest#)
+           dest-idx->address# (get-elem-dims->address dest-dims# max-shape#)
+           dest-alpha# (datatype->cast-fn ~datatype dest-alpha#)
+           y# (item->typed-nio-buffer ~datatype y#)
+           y-idx->address# (get-elem-dims->address y-dims# max-shape#)
+           y-alpha# (datatype->cast-fn ~datatype y-alpha#)
+           ^BinaryOp custom-op# custom-op#]
+       (if reverse-operands?#
+         (c-for [idx# 0 (< idx# n-elems#) (inc idx#)]
+                (let [dest-idx# (.idx_to_address dest-idx->address# idx#)
+                      y-idx# (.idx_to_address y-idx->address# idx#)]
+                  (b-put dest# dest-idx#
+                         (store-datatype-cast-fn
+                          ~datatype
+                          (.op custom-op#
+                               (* (read-datatype-cast-fn
+                                   ~datatype
+                                   (b-get y# y-idx#))
+                                  y-alpha#)
+                               (* (read-datatype-cast-fn
+                                   ~datatype
+                                   (b-get dest# dest-idx#))
+                                  dest-alpha#))))))
+         (c-for [idx# 0 (< idx# n-elems#) (inc idx#)]
+                (let [dest-idx# (.idx_to_address dest-idx->address# idx#)
+                      y-idx# (.idx_to_address y-idx->address# idx#)]
+                  (b-put dest# dest-idx#
+                         (store-datatype-cast-fn
+                          ~datatype
+                          (.op custom-op#
+                               (* (read-datatype-cast-fn
+                                   ~datatype
+                                   (b-get dest# dest-idx#))
+                                  dest-alpha#)
+                               (* (read-datatype-cast-fn
+                                   ~datatype
+                                   (b-get y# y-idx#))
+                                  y-alpha#))))))))))
+
+
 (defmacro binary-accum-table
   []
-  (->> (for [dtype all-datatypes
-             op ct/binary-operations
-             rev-ops? [true false]]
-         [[dtype op rev-ops?] `(binary-accum!-impl ~dtype ~op ~rev-ops?)])
+  (->> (concat (for [dtype all-datatypes
+                     op ct/binary-operations
+                     rev-ops? [true false]]
+                 [[dtype op rev-ops?] `(binary-accum!-impl ~dtype ~op ~rev-ops?)])
+               (for [dtype all-datatypes]
+                 [[dtype :custom] `(custom-binary-accum!-impl ~dtype)]))
        (into {})))
 
 
