@@ -366,9 +366,23 @@
 
   (unary-reduce! [stream output input-alpha input op]
     (cpu-driver/with-stream-dispatch stream
-      ((get-in (unary-reduce-table) [[(dtype/get-datatype output) op] :unary-reduce!])
-      (->buffer output) (->dimensions output)
-      input-alpha (->buffer input) (->dimensions input))))
+      (if-let [built-in (get-in (unary-reduce-table) [[(dtype/get-datatype output) op]
+                                                      :unary-reduce!])]
+        (built-in
+         (->buffer output) (->dimensions output)
+         input-alpha (->buffer input) (->dimensions input))
+        (if-let [{:keys [type operand]} (get @custom-op-table op)]
+          (do
+            (when-not (= type :unary-reduce)
+              (throw (ex-info "Invalid op type" {:op-type type})))
+            (let [built-in (get-in (unary-reduce-table)
+                                   [[(dtype/get-datatype output) :custom]
+                                    :unary-reduce!])]
+              (built-in
+               (->buffer output) (->dimensions output)
+               input-alpha (->buffer input) (->dimensions input)
+               operand)))
+          (throw (ex-info "Failed to find operator" {:operator op}))))))
 
   (gemm! [stream
           C c-colstride
