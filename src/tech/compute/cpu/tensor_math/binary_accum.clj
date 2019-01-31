@@ -51,8 +51,8 @@
   `(fn [dest# dest-dims# dest-alpha#
         scalar#
         n-elems#
-        reverse-operation?#
-        custom-op#]
+        custom-op#
+        reverse-operation?#]
      (let [n-elems# (long n-elems#)
            dest# (item->typed-nio-buffer ~datatype dest#)
            dest-idx->address# (get-elem-dims->address dest-dims#

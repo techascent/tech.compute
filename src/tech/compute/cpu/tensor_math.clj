@@ -90,7 +90,7 @@
   (when-not (instance? UnaryOp unary-op)
     (throw (ex-info "Operand is not a tech.compute.cpu.UnaryOp"
                     {:operand unary-op})))
-  (swap! custom-op-table assoc [keywd] {:type :unary
+  (swap! custom-op-table assoc keywd {:type :unary
                                         :operand unary-op})
   keywd)
 
@@ -100,7 +100,7 @@
   (when-not (instance? BinaryOp binary-op)
     (throw (ex-info "Operand is not a tech.compute.cpu.BinaryOp"
                     {:operand binary-op})))
-  (swap! custom-op-table assoc [keywd] {:type :binary
+  (swap! custom-op-table assoc keywd {:type :binary
                                         :operand binary-op})
   keywd)
 
@@ -110,7 +110,7 @@
   (when-not (instance? UnaryReduce unary-reduce-op)
     (throw (ex-info "Operand is not a tech.compute.cpu.BinaryOp"
                     {:operand unary-reduce-op})))
-  (swap! custom-op-table assoc [keywd] {:type :unary-reduce
+  (swap! custom-op-table assoc keywd {:type :unary-reduce
                                         :operand unary-reduce-op})
   keywd)
 
@@ -207,7 +207,8 @@
 
   (unary-accum! [stream dest alpha op]
     (cpu-driver/with-stream-dispatch stream
-      (if-let [built-in (get-in (unary-op-table) [[(dtype/get-datatype dest) op] :unary-accum!])]
+      (if-let [built-in (get-in (unary-op-table) [[(dtype/get-datatype dest) op]
+                                                  :unary-accum!])]
         (built-in
          (->buffer dest) (->dimensions dest) alpha (ct/ecount dest))
         (if-let [{:keys [type operand]} (get @custom-op-table op)]
@@ -215,14 +216,16 @@
             (when-not (= type :unary)
               (throw (ex-info "Custom operand is not a unary op"
                               {:op-type type})))
-            (let [built-in (get-in (unary-op-table) [[(dtype/get-datatype dest) :custom] :unary-accum!])]
+            (let [built-in (get-in (unary-op-table) [[(dtype/get-datatype dest) :custom]
+                                                     :unary-accum!])]
               (built-in
                (->buffer dest) (->dimensions dest) alpha (ct/ecount dest) operand)))
           (throw (ex-info "Failed to find operand" {:operand op}))))))
 
   (unary-op! [stream dest x alpha op]
     (cpu-driver/with-stream-dispatch stream
-      (if-let [built-in (get-in (unary-op-table) [[(dtype/get-datatype dest) op] :unary-op!])]
+      (if-let [built-in (get-in (unary-op-table) [[(dtype/get-datatype dest) op]
+                                                  :unary-op!])]
         (built-in
          (->buffer dest) (->dimensions dest) (->buffer x) (->dimensions x) alpha
          (max (ct/ecount dest) (ct/ecount x)))
@@ -231,9 +234,11 @@
             (when-not (= type :unary)
               (throw (ex-info "Custom operand is not a unary op"
                               {:op-type type})))
-            (let [built-in (get-in (unary-op-table) [[(dtype/get-datatype dest) :custom] :unary-op!])]
+            (let [built-in (get-in (unary-op-table) [[(dtype/get-datatype dest) :custom]
+                                                     :unary-op!])]
               (built-in
-               (->buffer dest) (->dimensions dest) alpha (ct/ecount dest) operand)))
+               (->buffer dest) (->dimensions dest) (->buffer x) (->dimensions x) alpha
+               (max (ct/ecount dest) (ct/ecount x)) operand)))
           (throw (ex-info "Failed to find operand" {:operand op}))))))
 
   (binary-accum-constant! [stream dest dest-alpha scalar operation reverse-operands?]

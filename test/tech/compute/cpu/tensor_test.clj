@@ -16,7 +16,8 @@
             [tech.compute.driver :as compute-drv]
             [tech.datatype :as dtype]
             [tech.datatype.jna :as dtype-jna]
-            [clojure.core.matrix :as m]))
+            [clojure.core.matrix :as m])
+  (:import [tech.compute.cpu UnaryOp BinaryOp]))
 
 
 (use-fixtures :each test-wrapper)
@@ -166,5 +167,55 @@
   (verify-tensor/cholesky-decomp (driver) *datatype*))
 
 
-(deftest LU-decomp
+(def-double-float-test LU-decomp
   (verify-tensor/LU-decomp (driver) *datatype*))
+
+
+(def-all-dtype-test custom-unary-operator
+  (ct-defaults/tensor-driver-context
+   (driver) *datatype*
+   (cpu-tm/add-unary-op! :test-unary (reify UnaryOp
+                                       (^double op [this ^double val]
+                                         (double (* 10.0 val)))))
+   (let [test-tens (ct/->tensor (range 10))
+         copy-result (ct/unary-op! (ct/from-prototype test-tens)
+                                   1.0 test-tens :test-unary)
+         accum-result (ct/unary-op! test-tens 1.0 test-tens :test-unary)]
+     (is (= [0.0 10.0 20.0 30.0 40.0 50.0 60.0 70.0 80.0 90.0]
+            (mapv double (dtype/->vector copy-result))))
+
+     (is (= [0.0 10.0 20.0 30.0 40.0 50.0 60.0 70.0 80.0 90.0]
+            (mapv double (dtype/->vector accum-result)))))))
+
+
+
+(def-double-float-test custom-binary-operator
+  (ct-defaults/tensor-driver-context
+   (driver) *datatype*
+   (cpu-tm/add-binary-op! :test-binary (reify BinaryOp
+                                         (^double op [this ^double lhs ^double rhs]
+                                          (double (- lhs (* 2 rhs))))))
+   (let [test-tens (ct/->tensor (range 5 15))
+
+         const-result (ct/binary-op! (ct/from-prototype test-tens)
+                                     1.0 test-tens 1.0 2.0 :test-binary)
+
+         const-reverse (ct/binary-op! (ct/from-prototype test-tens)
+                                      1.0 2.0 1.0 test-tens :test-binary)
+
+         accum1-test (ct/clone test-tens)
+         accum-result (ct/binary-op! accum1-test
+                                     1.0 accum1-test 1.0 test-tens :test-binary)
+         const-accum-reverse (ct/binary-op! test-tens
+                                            1.0 2.0 1.0 test-tens :test-binary)]
+
+     (is (= [1.0 2.0 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0]
+            (mapv double (dtype/->vector const-result))))
+
+     (is (= [-8.0 -10.0 -12.0 -14.0 -16.0 -18.0 -20.0 -22.0 -24.0 -26.0]
+            (mapv double (dtype/->vector const-reverse))))
+
+     (is (= [-5.0 -6.0 -7.0 -8.0 -9.0 -10.0 -11.0 -12.0 -13.0 -14.0]
+            (mapv double (dtype/->vector accum-result))))
+     (is (= [-8.0 -10.0 -12.0 -14.0 -16.0 -18.0 -20.0 -22.0 -24.0 -26.0]
+            (mapv double (dtype/->vector const-accum-reverse)))))))
