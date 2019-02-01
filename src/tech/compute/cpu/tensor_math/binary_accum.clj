@@ -17,8 +17,7 @@
             [clojure.core.matrix.macros :refer [c-for]]
             [tech.compute.tensor :as ct]
             [tech.compute.cpu.tensor-math.writers :as writers]
-            [tech.compute.cpu.tensor-math.binary-op-impls :as bin-impls])
-  (:import [tech.compute.cpu BinaryOp TypedBinaryOp]))
+            [tech.compute.cpu.tensor-math.binary-op-impls :as bin-impls]))
 
 
 (set! *unchecked-math* :warn-on-boxed)
@@ -45,7 +44,9 @@
                          ~datatype reverse-operation?# custom-op#
                          (double (* (read-datatype-cast-fn
                                      ~datatype
-                                     (b-get dest# ~'idx)) dest-alpha#))
+                                     (b-get dest# (.idx_to_address dest-idx->address#
+                                                                   ~'idx)))
+                                    dest-alpha#))
                          scalar#)]
          (writer# dest# dest-dims# max-shape# n-elems# converter#)))))
 
