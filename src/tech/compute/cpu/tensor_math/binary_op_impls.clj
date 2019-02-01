@@ -5,9 +5,7 @@
                      read-datatype-cast-fn
                      item->typed-nio-buffer
                      all-datatypes
-                     datatype->cast-fn
-                     binary-op-rev-ops
-                     ] :as nio-access]
+                     datatype->cast-fn] :as nio-access]
            [tech.compute.cpu.tensor-math.writers :as writers]
            [tech.datatype.java-unsigned :as unsigned]
            [tech.datatype.java-primitive :as primitive])

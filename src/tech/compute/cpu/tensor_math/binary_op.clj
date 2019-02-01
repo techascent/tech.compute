@@ -7,8 +7,6 @@
                      item->typed-nio-buffer
                      all-datatypes
                      datatype->cast-fn
-                     binary-op-rev-ops
-                     binary-op-impl
                      ] :as nio-access]
             [tech.compute.cpu.tensor-math.addressing
              :refer [get-elem-dims->address

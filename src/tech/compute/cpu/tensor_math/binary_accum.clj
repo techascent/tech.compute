@@ -6,9 +6,7 @@
                      read-datatype-cast-fn
                      item->typed-nio-buffer
                      all-datatypes
-                     datatype->cast-fn
-                     binary-op-rev-ops
-                     ] :as nio-access]
+                     datatype->cast-fn] :as nio-access]
             [tech.compute.cpu.tensor-math.addressing
              :refer [get-elem-dims->address
                      max-shape-from-dimensions]]
