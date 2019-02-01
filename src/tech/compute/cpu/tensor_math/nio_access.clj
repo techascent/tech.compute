@@ -62,21 +62,6 @@
         `(vector ~dtype (~iter-macro ~dtype)))))
 
 
-(defmacro unary-op-impl
-  [operation x]
-  (condp = operation
-    :floor `(Math/floor (double ~x))
-    :ceil `(Math/ceil (double ~x))
-    :round `(Math/round (double ~x))
-    :- `(- ~x)
-    :tanh `(Math/tanh (double ~x))
-    :logistic `(/ 1.0
-                  (+ 1.0 (Math/exp (- ~x))))
-    :exp `(Math/exp (double ~x))
-    :sqrt `(Math/sqrt (double ~x))
-    :noop `(double ~x)))
-
-
 
 (defmacro binary-op-impl
   [operation x y]
