@@ -35,7 +35,7 @@
   (verify-tensor/binary-constant-op (driver) *datatype*))
 
 
-(def-all-dtype-exception-unsigned binary-op
+(deftest binary-op
   (verify-tensor/binary-op (driver) *datatype* ))
 
 
