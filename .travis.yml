@@ -6,3 +6,4 @@ addons:
   apt:
     packages:
     - libopenblas-dev
+    - liblapack3
