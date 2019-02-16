@@ -513,11 +513,12 @@ https://cloojure.github.io/doc/core.matrix/clojure.core.matrix.html#var-select"
                            (ensure-tensor arg)
                            arg))))
         select-result (apply dims/select (tensor->dimensions tensor) args)
-        {:keys [dimensions elem-offset]} select-result
+        {:keys [dimensions elem-offset buffer-length]} select-result
         tens-buffer (tens-proto/tensor->buffer tensor)
-        new-buffer (compute/sub-buffer tens-buffer elem-offset
-                                       (- (dtype/ecount tens-buffer)
-                                          (long elem-offset)))]
+        buffer-length (long (or buffer-length
+                                (- (dtype/ecount tens-buffer)
+                                   (long elem-offset))))
+        new-buffer (compute/sub-buffer tens-buffer elem-offset buffer-length)]
     (construct-tensor dimensions new-buffer)))
 
 

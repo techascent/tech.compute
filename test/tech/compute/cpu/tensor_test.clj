@@ -35,7 +35,7 @@
   (verify-tensor/binary-constant-op (driver) *datatype*))
 
 
-(deftest binary-op
+(def-all-dtype-exception-unsigned binary-op
   (verify-tensor/binary-op (driver) *datatype* ))
 
 
@@ -161,6 +161,16 @@
     (let [test-tensor (ct/->tensor [[1 2 3 4]] :container-fn dtype-jna/make-typed-pointer)]
       (is (ct/tensor? test-tensor))
       (is (= [1 4] (ct/shape test-tensor))))))
+
+
+(deftest select-tensor-work-correctly-with-dtype-lib
+  (testing "Test that dtype/->array, dtype/->array-copy work correctly with select-produced tensors"
+    (let [test-data (ct/->tensor (partition 3 (range 9)))]
+      (is (= (ct/ecount (ct/select test-data 0 :all)) 3))
+      (is (= (ct/ecount (dtype/->array-copy (ct/select test-data 0 :all))) 3))
+      (is (= (ct/ecount (dtype/->array-copy (ct/select test-data 2 :all))) 3))
+      (is (= (ct/ecount (dtype/->array-copy (ct/select test-data 1 :all))) 3))
+      (is (= nil (dtype/->array (ct/select test-data 0 :all)))))))
 
 
 (def-double-float-test cholesky-decomp
