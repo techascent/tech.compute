@@ -149,7 +149,13 @@ Returns:
                     (throw (ex-info "Bad dimension type"
                                     {:dimension dimension}))))
                 [[] [] 0]
-                (map vector dimension-seq stride-seq))]
-    {:dimension-seq dimension-seq
-     :strides strides
-     :offset offset}))
+                (map vector dimension-seq stride-seq))
+        retval
+
+        {:dimension-seq dimension-seq
+         :strides strides
+         :offset offset
+         :length (when (shape/direct-shape? dimension-seq)
+                   (apply + 1 (map * (map (comp dec shape/shape-entry->count)
+                                          dimension-seq) strides)))}]
+    retval))

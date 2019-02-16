@@ -38,7 +38,9 @@
                          (.limit buf# (+ offset# len#))
                          buf#))
       :array-backing-store (fn [item#]
-                             (dtype/->array item#))
+                             (let [item# (to-nio-buf ~datatype item#)]
+                               (when (.hasArray item#)
+                                 (.array item#))))
       :nio-offset (fn [item#]
                     (let [buf# (to-nio-buf ~datatype item#)]
                       (.position buf#)))
@@ -78,7 +80,9 @@
       (and (and lhs-ary rhs-ary)
            (identical? lhs-ary rhs-ary)
            (and (= (get-offset lhs)
-                   (get-offset rhs))))))
+                   (get-offset rhs)))
+           (and (= (get-length lhs)
+                   (get-length rhs))))))
   (partially-alias? [lhs rhs]
     (let [lhs-ary (array-backing-store (primitive/->buffer-backing-store lhs))
           rhs-ary (array-backing-store (primitive/->buffer-backing-store rhs))]

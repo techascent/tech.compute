@@ -102,8 +102,8 @@ intended usage of the buffer."
          new-max-length (- original-size offset)]
      (when-not (<= length new-max-length)
        (throw (ex-info "Sub buffer out of range."
-                      {:required new-max-length
-                       :current length})))
+                      {:desired-length length
+                       :ecount-minus-offset new-max-length})))
      (drv/sub-buffer device-buffer offset length)))
   ([buffer offset]
    (sub-buffer buffer offset (- (dtype/ecount buffer) offset))))

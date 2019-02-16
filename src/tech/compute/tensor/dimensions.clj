@@ -435,11 +435,13 @@ https://cloojure.github.io/doc/core.matrix/clojure.core.matrix.html#var-select"
           shape (map dims-select/apply-select-arg-to-dimension shape args)
           {shape :dimension-seq
            strides :strides
-           offset :offset} (dims-select/dimensions->simpified-dimensions
-                            shape strides)]
+           offset :offset
+           buffer-length :length} (dims-select/dimensions->simpified-dimensions
+                                   shape strides)]
       {:dimensions {:shape shape
                     :strides strides}
-       :elem-offset offset})))
+       :elem-offset offset
+       :buffer-length buffer-length})))
 
 
 (defn dimensions->column-stride
