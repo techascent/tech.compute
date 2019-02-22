@@ -84,6 +84,7 @@
    :* (implement-typed-binary-op (* x y))
    :rem (long-binary-op (Math/floorMod x y))
    :quot (long-binary-op (Math/floorDiv x y))
+   :pow (implement-binary-op (Math/pow x y))
    ;;Math/max and friends aren't defined for all primitives leading to reflection
    ;;warnings.
    :max (implement-typed-binary-op (if (> x y) x y))
