@@ -15,29 +15,9 @@
             [tech.datatype.java-unsigned :as unsigned]
             [tech.datatype.java-primitive :as primitive]
             [clojure.core.matrix.macros :refer [c-for]]
-            [tech.compute.tensor :as ct])
+            [tech.compute.tensor :as ct]
+            [tech.compute.cpu.tensor-math.binary-op-impls :as bin-impl])
   (:import [tech.compute.cpu UnaryReduce]))
-
-
-(defmacro square-expr
-  [expr]
-  `(let [item# ~expr]
-     (* item# item#)))
-
-
-(defmacro identity-expr
-  [& args]
-  (first args))
-
-
-(defmacro sqrt-expr
-  [& args]
-  `(Math/sqrt ~(first args)))
-
-
-(defmacro add-squared
-  [sum-var item]
-  `(+ ~sum-var (square-expr ~item)))
 
 
 (defmacro perform-reduce
@@ -74,45 +54,28 @@
   `(.finalize ~'custom (double ~acc) (int ~idx-range)))
 
 
-(defmacro do-unary-reduce-op
-  [datatype op input addr in-alpha idx-start idx-stop]
-  (condp = op
-    :min `(perform-reduce identity-expr min identity-expr
-                          ~datatype ~input ~addr ~in-alpha ~idx-start ~idx-stop)
-    :max `(perform-reduce identity-expr max identity-expr
-                          ~datatype ~input ~addr ~in-alpha ~idx-start ~idx-stop)
-    :sum `(perform-reduce identity-expr + identity-expr
-                          ~datatype ~input ~addr ~in-alpha ~idx-start ~idx-stop)
-    :mean `(perform-reduce identity-expr + /
-                           ~datatype ~input ~addr ~in-alpha ~idx-start ~idx-stop)
-    :magnitude `(perform-reduce square-expr add-squared sqrt-expr
-                                ~datatype ~input ~addr ~in-alpha ~idx-start ~idx-stop)
-    :magnitude-squared `(perform-reduce square-expr add-squared identity-expr
-                                        ~datatype ~input ~addr ~in-alpha ~idx-start ~idx-stop)))
-
-
-
-(defmacro unary-reduce-impl
-  [datatype op]
-  `(fn [output# output-dims# input-alpha# input# input-dims#]
-     (let [input-shape# (ct-dims/shape input-dims#)
-           output-addr# (get-elem-dims->address output-dims#
-                                                (ct-dims/shape output-dims#))
-           input-addr# (get-elem-dims->address input-dims# (ct-dims/shape input-dims#))
-           input# (item->typed-nio-buffer ~datatype input#)
-           output# (item->typed-nio-buffer ~datatype output#)
-           input-alpha# (datatype->cast-fn ~datatype input-alpha#)
-           parallelism# (ct-dims/ecount output-dims#)
-           iter-amount# (quot (ct-dims/ecount input-dims#)
-                              parallelism#)]
-       (parallel/parallel-for
-        par-idx# parallelism#
-        (let [iter-start# (* par-idx# iter-amount#)
-              iter-stop# (+ iter-start# iter-amount#)]
-         (b-put output# (.idx_to_address output-addr# par-idx#)
-                 (store-datatype-cast-fn ~datatype
-                                    (do-unary-reduce-op ~datatype ~op input# input-addr# input-alpha#
-                                                        iter-start# iter-stop#))))))))
+(def custom-reduce-builtins
+  {:mean (reify UnaryReduce
+           (initialize [this fv]
+             fv)
+           (update [this accum nv]
+             (+ accum nv))
+           (finalize [this accum ne]
+             (/ accum (double ne))))
+   :magnitude (reify UnaryReduce
+                (initialize [this fv]
+                  (* fv fv))
+                (update [this accum nv]
+                  (+ accum (* nv nv)))
+                (finalize [this accum ne]
+                  (Math/sqrt (double accum))))
+   :magnitude-squared (reify UnaryReduce
+                        (initialize [this fv]
+                          (* fv fv))
+                        (update [this accum nv]
+                          (+ accum (* nv nv)))
+                        (finalize [this accum ne]
+                          accum))})
 
 
 (defmacro custom-unary-reduce-impl
@@ -137,18 +100,32 @@
                 (store-datatype-cast-fn
                  ~datatype
                  (perform-reduce custom-init custom-update custom-finalize
-                                 ~datatype input# input-addr# input-alpha# iter-start# iter-stop#))))))))
+                                 ~datatype input# input-addr# input-alpha#
+                                 iter-start# iter-stop#))))))))
 
 
-(defmacro unary-reduce-iter
+(defmacro make-custom-unary-reducers
   []
-  (->> (concat (for [dtype all-datatypes
-                     reduce-op ct/unary-reduction-operations]
-                 [[dtype reduce-op] {:unary-reduce! `(unary-reduce-impl ~dtype ~reduce-op)}])
-               (for [dtype all-datatypes]
-                 [[dtype :custom] {:unary-reduce! `(custom-unary-reduce-impl ~dtype)}]))
+  (->> (for [dtype all-datatypes]
+         [[dtype :custom] {:unary-reduce! `(custom-unary-reduce-impl ~dtype)}])
        (into {})))
 
 
+(def custom-unary-reducers (make-custom-unary-reducers))
+
+
 (def unary-reduce-table
-  (unary-reduce-iter))
+  (merge
+   custom-unary-reducers
+   (->> (for [dtype all-datatypes
+              [reduce-op operator] custom-reduce-builtins]
+          (let [custom-reduce-op (get-in custom-unary-reducers [[dtype :custom]
+                                                                :unary-reduce!])]
+
+            [[dtype reduce-op]
+             {:unary-reduce! (fn [output output-dims
+                                  input-alpha input input-dims]
+                               (custom-reduce-op output output-dims
+                                                 input-alpha input input-dims
+                                                 operator))}]))
+        (into {}))))
