@@ -5,6 +5,9 @@
             [tech.compute.cpu.tensor-math.binary-op-impls :as binop-impls]
             [tech.compute.cpu.tensor-math.unary-reduce :as unary-reduce]
             [tech.compute.cpu.tensor-math :as cpu-tm]
+            [tech.compute.cpu.math-operands :as math-ops
+             :refer [as-unary-op as-typed-unary-op
+                     as-binary-op as-typed-binary-op]]
             [tech.datatype :as dtype])
   (:import [tech.compute.cpu UnaryOp TypedUnaryOp
             BinaryOp TypedBinaryOp
@@ -15,43 +18,13 @@
 (set! *warn-on-reflection* true)
 
 
-(defn- as-un-op
-  ^UnaryOp [item]
-  (when (instance? UnaryOp item)
-    item))
-
-(defn- as-typed-un-op
-  ^TypedUnaryOp [item]
-  (when (instance? TypedUnaryOp item)
-    item))
-
-
-(defn- as-bin-op
-  ^BinaryOp [item]
-  (when (instance? BinaryOp item)
-    item))
-
-
-(defn- as-typed-bin-op
-  ^TypedBinaryOp [item]
-  (when (instance? TypedBinaryOp item)
-    item))
-
-
-(defn- as-unary-red-op
-  ^UnaryReduce [item]
-  (when (instance? UnaryReduce item)
-    item))
-
-
 (defn unary-op
   [op-kwd op-arg]
   (if (number? op-arg)
-    (if-let [un-op-base (or (get unary-op/builtin-unary-ops op-kwd)
-                            (get @cpu-tm/custom-op-table [op-kwd :unary]))]
-      (if-let [un-op (as-un-op un-op-base)]
+    (if-let [un-op-base (math-ops/get-unary-operand op-kwd)]
+      (if-let [un-op (as-unary-op un-op-base)]
         (.op un-op (double op-arg))
-        (let [un-op (as-typed-un-op un-op-base)]
+        (let [un-op (as-typed-unary-op un-op-base)]
           (case (dtype/get-datatype op-arg)
             :int8 (.byteOp un-op (unchecked-byte op-arg) 0)
             :int16 (.shortOp un-op (unchecked-short op-arg) 0)
@@ -60,7 +33,7 @@
             :float32 (.floatOp un-op (unchecked-float op-arg) 0)
             :float64 (.doubleOp un-op (unchecked-double op-arg) 0))))
       (throw (ex-info (format "Unable to find scalar %s" op-kwd))))
-    (ct/unary-op! (ct/clone op-arg) 1.0 op-arg op-kwd)))
+    (ct/unary-op! (ct/from-prototype op-arg) 1.0 op-arg op-kwd)))
 
 
 (defn unary-reduce
@@ -78,16 +51,15 @@
 
 (defn- scalar-binary-op
   [op-kwd arglist]
-  (if-let [untyped-bin-op (or (get binop-impls/builtin-binary-ops op-kwd)
-                              (get @cpu-tm/custom-op-table [op-kwd :binary]))]
-    (if-let [bin-op (as-bin-op untyped-bin-op)]
+  (if-let [untyped-bin-op (math-ops/get-binary-operand op-kwd)]
+    (if-let [bin-op (as-binary-op untyped-bin-op)]
       (loop [lhs (unchecked-double (first arglist))
              arglist (rest arglist)]
         (if-let [rhs (first arglist)]
           (recur (.op bin-op (unchecked-double lhs) (unchecked-double rhs))
                  (rest arglist))
           lhs))
-      (let [bin-op (as-typed-bin-op untyped-bin-op)]
+      (let [bin-op (as-typed-binary-op untyped-bin-op)]
         (loop [lhs (first arglist)
                arglist (rest arglist)]
           (if-let [rhs (first arglist)]
@@ -106,13 +78,21 @@
                             op-kwd)))))
 
 
+(defn tensor?
+  [item]
+  (or (ct/acceptable-tensor-buffer? item)
+      (ct/tensor? item)))
+
+
 (defn binary-op
+  "Perform a binary operation falling back to the registered interface
+  if the operands aren't tensors."
   [op-kwd arglist]
   (when-not (>= (count arglist) 2)
-    (throw (ex-info "")))
+    (throw (ex-info "Binary operations take at least 2 arguments"
+                    {:arg-count (count arglist)})))
   (if-let [tens-seq (->> arglist
-                         (filter #(or (ct/acceptable-tensor-buffer? %)
-                                      (ct/tensor? %)))
+                         (filter tensor?)
                          seq)]
     (let [accum (ct/assign! (ct/from-prototype (first tens-seq))
                             (first arglist))]
@@ -122,12 +102,31 @@
     (scalar-binary-op op-kwd arglist)))
 
 
+(defn binary-op-fallback
+  "Perform a binary operation using provided function if the operands are
+  not tensors.  The provided function must take multiple (more than 2) arguments."
+  [op-kwd op-scalar-fn arglist]
+  (when-not (>= (count arglist) 2)
+    (throw (ex-info "")))
+  (if-let [tens-seq (->> arglist
+                         (filter tensor?)
+                         seq)]
+    (let [accum (ct/assign! (ct/from-prototype (first tens-seq))
+                            (first arglist))]
+      (doseq [rhs (rest arglist)]
+        (ct/binary-op! accum 1.0 accum 1.0 rhs op-kwd))
+      accum)
+    (apply op-scalar-fn arglist)))
+
+
 (defonce ^:dynamic *registered-language-fns* (atom {}))
 
 
 (defn register-symbol!
-  [sym-name sym-value]
-  (-> (swap! *registered-language-fns* assoc sym-name sym-value)
+  [registration-atom sym-name sym-value]
+  (-> (swap! (or registration-atom
+                 *registered-language-fns*)
+             assoc sym-name sym-value)
       keys))
 
 
@@ -167,44 +166,69 @@
     :else
     math-expr))
 
-(defmacro register-math-fn
-  [fn-name fn-type-seq]
-  (let [red-symbol-remap (get {:/ :div} fn-name fn-name)]
+
+(defn symbol->str
+  [sym]
+  (if (namespace sym)
+    (str (namespace sym) "/" (name sym))
+    (str (name sym))))
+
+
+(defmacro make-math-fn
+  "Make a function that class into the impl for the op type.
+  If a scalar fallback is passed in then this is used instead of the tensor
+  operator when dealing with things that are not tensors.
+  If fn-name is namespaced the function will be registered in the local namespace
+  but the system will call the namespaced function as the tensor math op."
+  [registration-atom fn-name fn-type-seq & [binary-scalar-fallback]]
+  (let [red-symbol-remap (get {:/ :div} fn-name fn-name)
+        sym-name (name red-symbol-remap)]
     `(do
        ~(when (fn-type-seq :unary-reduce)
-          (let [fn-sym (symbol (str (name red-symbol-remap) "-reduce"))
+          (let [fn-sym (symbol (str sym-name "-reduce"))
                 sym-name (name fn-sym)]
             `(do
-               (defn ~fn-sym
-                 ~(format "Reduction with operator %s" (name fn-name))
+               (defn ~(symbol sym-name)
+                 ~(format "Reduction with operator %s" sym-name)
                  [~'tensor]
                  (unary-reduce ~fn-name ~'tensor))
-               (register-symbol! (symbol ~sym-name)
-                                           (fn [_# & args#]
-                                             (apply ~fn-sym args#))))))
+               (register-symbol! ~registration-atom
+                                 (symbol ~sym-name)
+                                 (fn [_# & args#]
+                                   (apply ~(symbol sym-name) args#))))))
        ~(if (or (fn-type-seq :unary)
                 (fn-type-seq :binary))
           `(do
              ~(cond (and (fn-type-seq :unary)
                          (fn-type-seq :binary))
-                    `(defn ~(symbol (name fn-name))
+                    `(defn ~(symbol sym-name)
                        ~(format "Apply %s in unary or binary context" (name fn-name))
                        ([~'tensor-or-scalar]
                         (unary-op ~fn-name ~'tensor-or-scalar))
                        ([~'tensor-or-scalar & ~'args]
-                        (binary-op ~fn-name (concat [~'tensor-or-scalar]
-                                                              ~'args))))
+                        ~(if binary-scalar-fallback
+                           `(binary-op-fallback ~fn-name ~binary-scalar-fallback
+                                                (concat [~'tensor-or-scalar]
+                                                        ~'args))
+                           `(binary-op ~fn-name (concat [~'tensor-or-scalar]
+                                                        ~'args)))))
                     (fn-type-seq :unary)
-                    `(defn ~(symbol (name fn-name))
+                    `(defn ~(symbol sym-name)
                        ~(format "Apply unary operator %s" (name fn-name))
                        [~'tensor-or-scalar]
                        (unary-op ~fn-name ~'tensor-or-scalar))
                     (fn-type-seq :binary)
-                    `(defn ~(symbol (name fn-name))
+                    `(defn ~(symbol sym-name)
                        ~(format "Apply binary operator %s" (name fn-name))
                        [~'tensor-or-scalar & ~'args]
-                       (binary-op ~fn-name (concat [~'tensor-or-scalar]
-                                                             ~'args))))
-             (register-symbol! (symbol ~(name fn-name))
-                                         (fn [_# & args#]
-                                           (apply ~(symbol (name fn-name)) args#))))))))
+                       ~(if binary-scalar-fallback
+                          `(binary-op-fallback ~fn-name
+                                               ~binary-scalar-fallback
+                                               (concat [~'tensor-or-scalar]
+                                                       ~'args))
+                          `(binary-op ~fn-name (concat [~'tensor-or-scalar]
+                                                       ~'args)))))
+             (register-symbol! ~registration-atom
+                               (symbol ~sym-name)
+                               (fn [_# & args#]
+                                 (apply ~(symbol sym-name) args#))))))))

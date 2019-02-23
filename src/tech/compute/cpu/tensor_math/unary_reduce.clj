@@ -15,8 +15,7 @@
             [tech.datatype.java-unsigned :as unsigned]
             [tech.datatype.java-primitive :as primitive]
             [clojure.core.matrix.macros :refer [c-for]]
-            [tech.compute.tensor :as ct]
-            [tech.compute.cpu.tensor-math.binary-op-impls :as bin-impl])
+            [tech.compute.tensor :as ct])
   (:import [tech.compute.cpu UnaryReduce]))
 
 
@@ -52,30 +51,6 @@
 (defmacro custom-finalize
   [acc idx-range]
   `(.finalize ~'custom (double ~acc) (int ~idx-range)))
-
-
-(def custom-reduce-builtins
-  {:mean (reify UnaryReduce
-           (initialize [this fv]
-             fv)
-           (update [this accum nv]
-             (+ accum nv))
-           (finalize [this accum ne]
-             (/ accum (double ne))))
-   :magnitude (reify UnaryReduce
-                (initialize [this fv]
-                  (* fv fv))
-                (update [this accum nv]
-                  (+ accum (* nv nv)))
-                (finalize [this accum ne]
-                  (Math/sqrt (double accum))))
-   :magnitude-squared (reify UnaryReduce
-                        (initialize [this fv]
-                          (* fv fv))
-                        (update [this accum nv]
-                          (+ accum (* nv nv)))
-                        (finalize [this accum ne]
-                          accum))})
 
 
 (defmacro custom-unary-reduce-impl
@@ -114,18 +89,4 @@
 (def custom-unary-reducers (make-custom-unary-reducers))
 
 
-(def unary-reduce-table
-  (merge
-   custom-unary-reducers
-   (->> (for [dtype all-datatypes
-              [reduce-op operator] custom-reduce-builtins]
-          (let [custom-reduce-op (get-in custom-unary-reducers [[dtype :custom]
-                                                                :unary-reduce!])]
-
-            [[dtype reduce-op]
-             {:unary-reduce! (fn [output output-dims
-                                  input-alpha input input-dims]
-                               (custom-reduce-op output output-dims
-                                                 input-alpha input input-dims
-                                                 operator))}]))
-        (into {}))))
+(def unary-reduce-table custom-unary-reducers)

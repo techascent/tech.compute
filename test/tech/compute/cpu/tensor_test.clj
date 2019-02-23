@@ -16,6 +16,7 @@
             [tech.compute.driver :as compute-drv]
             [tech.datatype :as dtype]
             [tech.datatype.jna :as dtype-jna]
+            [tech.compute.cpu.math-operands :as math-ops]
             [clojure.core.matrix :as m])
   (:import [tech.compute.cpu UnaryOp BinaryOp UnaryReduce]))
 
@@ -184,7 +185,7 @@
 (def-all-dtype-test custom-unary-operator
   (ct-defaults/tensor-driver-context
    (driver) *datatype*
-   (cpu-tm/add-unary-op! :test-unary (reify UnaryOp
+   (math-ops/add-unary-op! :test-unary (reify UnaryOp
                                        (op [this val]
                                          (double (* 10.0 val)))))
    (let [test-tens (ct/->tensor (range 10))
@@ -202,7 +203,7 @@
 (def-double-float-test custom-binary-operator
   (ct-defaults/tensor-driver-context
    (driver) *datatype*
-   (cpu-tm/add-binary-op! :test-binary (reify BinaryOp
+   (math-ops/add-binary-op! :test-binary (reify BinaryOp
                                          (op [this lhs rhs]
                                            (double (- lhs (* 2 rhs))))))
    (let [test-tens (ct/->tensor (range 5 15))
@@ -232,7 +233,7 @@
 
 
 (def-all-dtype-test custom-unary-reduce
-  (cpu-tm/add-unary-reduce!
+  (math-ops/add-unary-reduce!
    :custom-reduce (reify UnaryReduce
                     (^double initialize [this ^double first-val]
                      first-val)

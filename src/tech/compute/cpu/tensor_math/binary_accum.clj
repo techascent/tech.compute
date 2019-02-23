@@ -59,22 +59,7 @@
 (def custom-bin-op-constant-table (make-custom-bin-op-constant-table))
 
 
-(def binary-accum-constant-table
-  (merge custom-bin-op-constant-table
-         (->> (for [dtype all-datatypes
-                    [opname op-impl] bin-impls/builtin-binary-ops
-                    rev-ops? [true false]]
-                (let [custom-impl (get custom-bin-op-constant-table [dtype :custom])]
-                  [[dtype opname rev-ops?]
-                   (fn [dest dest-dims dest-alpha
-                        scalar
-                        n-elems]
-                     (custom-impl dest dest-dims dest-alpha
-                                  scalar
-                                  n-elems
-                                  op-impl rev-ops?))]))
-
-              (into {}))))
+(def binary-accum-constant-table custom-bin-op-constant-table)
 
 
 (defmacro ^:private custom-binary-accum!-impl
@@ -116,18 +101,4 @@
 (def custom-bin-op-table (make-custom-bin-op-table))
 
 
-(def binary-accum-table
-  (merge custom-bin-op-table
-         (->> (for [dtype all-datatypes
-                    [opname op-impl] bin-impls/builtin-binary-ops
-                    rev-ops? [true false]]
-                (let [custom-impl (get custom-bin-op-table [dtype :custom])]
-                  [[dtype opname rev-ops?]
-                   (fn [dest dest-dims dest-alpha
-                        y y-dims y-alpha
-                        n-elems]
-                     (custom-impl dest dest-dims dest-alpha
-                                  y y-dims y-alpha
-                                  n-elems
-                                  op-impl rev-ops?))]))
-              (into {}))))
+(def binary-accum-table custom-bin-op-table)

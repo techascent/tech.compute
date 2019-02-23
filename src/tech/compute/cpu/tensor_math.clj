@@ -27,7 +27,11 @@
             [tech.datatype.jna :as dtype-jna]
             [tech.compute.cpu.jna-blas :as jna-blas]
             [tech.compute.cpu.jna-lapack :as jna-lapack]
-            [tech.compute.cpu.tensor-math.binary-op-impls :as bin-impls])
+            [tech.compute.cpu.tensor-math.binary-op-impls :as bin-impls]
+            [tech.compute.cpu.math-operands :as math-ops
+             :refer [get-unary-operand
+                     get-binary-operand
+                     get-unary-reduce-operand]])
   (:import [tech.compute.cpu.driver CPUStream]
            [java.security SecureRandom]
            [com.sun.jna Pointer]
@@ -85,68 +89,6 @@
 
 (defn blas-fn-map []
   @(parallel/require-resolve 'tech.compute.cpu.tensor-math.blas/blas-fn-map))
-
-
-(def ^:dynamic custom-op-table (atom {}))
-
-
-(defn add-unary-op!
-  [keywd unary-op]
-  (when-not (or (instance? UnaryOp unary-op)
-                (instance? TypedUnaryOp unary-op))
-    (throw (ex-info "Operand is not a tech.compute.cpu.UnaryOp"
-                    {:operand unary-op})))
-  (swap! custom-op-table assoc [keywd :unary] unary-op)
-  keywd)
-
-
-(defn add-binary-op!
-  [keywd binary-op]
-  (when-not (or (instance? BinaryOp binary-op)
-                (instance? TypedBinaryOp binary-op))
-    (throw (ex-info "Operand is not a tech.compute.cpu.BinaryOp"
-                    {:operand binary-op})))
-  (swap! custom-op-table assoc [keywd :binary] binary-op)
-  keywd)
-
-
-(defn add-unary-reduce!
-  [keywd unary-reduce-op]
-  (when-not (or (instance? UnaryReduce unary-reduce-op)
-                (instance? BinaryOp unary-reduce-op)
-                (instance? TypedBinaryOp unary-reduce-op))
-    (throw (ex-info "Operand is not a tech.compute.cpu.UnaryReduceOp
-nor a BinaryOp nor a TypedBinaryOp."
-                    {:operand unary-reduce-op})))
-  (let [reduce-op
-        (cond
-          (instance? UnaryReduce unary-reduce-op)
-          unary-reduce-op
-          (instance? BinaryOp unary-reduce-op)
-          (let [^BinaryOp bin-op unary-reduce-op]
-            (reify UnaryReduce
-              (initialize [this nv] nv)
-              (update [this accum nv]
-                (.op bin-op accum nv))
-              (finalize [this accum n-elems]
-                accum)))
-          (instance? TypedBinaryOp unary-reduce-op)
-          (let [^TypedBinaryOp bin-op unary-reduce-op]
-            (reify UnaryReduce
-              (initialize [this nv] nv)
-              (update [this accum nv]
-                (.doubleOp bin-op accum nv 0))
-              (finalize [this accum n-elems]
-                accum)))
-          :else
-          (throw (ex-info "Failed to discern op type" {})))]
-    (swap! custom-op-table assoc [keywd :unary-reduce] reduce-op))
-  keywd)
-
-
-(doseq [[opname bin-impl] bin-impls/builtin-binary-ops]
-  (add-unary-reduce! opname bin-impl)
-  (add-unary-reduce! :sum (get bin-impls/builtin-binary-ops :+)))
 
 
 (defn- jna-blas-fn-map
@@ -241,87 +183,46 @@ nor a BinaryOp nor a TypedBinaryOp."
 
   (unary-accum! [stream dest alpha op]
     (cpu-driver/with-stream-dispatch stream
-      (if-let [built-in (get-in (unary-op-table) [[(dtype/get-datatype dest) op]
-                                                  :unary-accum!])]
-        (built-in
-         (->buffer dest) (->dimensions dest) alpha (ct/ecount dest))
-        (if-let [operand (get @custom-op-table [op :unary])]
-          (let [built-in (get-in (unary-op-table) [[(dtype/get-datatype dest) :custom]
-                                                   :unary-accum!])]
-            (built-in
-             (->buffer dest) (->dimensions dest) alpha (ct/ecount dest) operand))
-          (throw (ex-info "Failed to find operand" {:operand op}))))))
+      (let [built-in (get-in (unary-op-table) [[(dtype/get-datatype dest) :custom]
+                                               :unary-accum!])]
+        (built-in (->buffer dest) (->dimensions dest) alpha (ct/ecount dest)
+                  (get-unary-operand op)))))
 
   (unary-op! [stream dest x alpha op]
     (cpu-driver/with-stream-dispatch stream
-      (if-let [built-in (get-in (unary-op-table) [[(dtype/get-datatype dest) op]
-                                                  :unary-op!])]
-        (built-in
-         (->buffer dest) (->dimensions dest) (->buffer x) (->dimensions x) alpha
-         (max (ct/ecount dest) (ct/ecount x)))
-        (if-let [operand (get @custom-op-table [op :unary])]
-          (let [built-in (get-in (unary-op-table) [[(dtype/get-datatype dest) :custom]
-                                                   :unary-op!])]
-            (built-in
-             (->buffer dest) (->dimensions dest) (->buffer x) (->dimensions x) alpha
-             (max (ct/ecount dest) (ct/ecount x)) operand))
-          (throw (ex-info "Failed to find operand" {:operand op}))))))
+      (let [built-in (get-in (unary-op-table) [[(dtype/get-datatype dest) :custom]
+                                               :unary-op!])]
+        (built-in (->buffer dest) (->dimensions dest) (->buffer x) (->dimensions x) alpha
+                  (max (ct/ecount dest) (ct/ecount x))
+                  (get-unary-operand op)))))
 
   (binary-accum-constant! [stream dest dest-alpha scalar operation reverse-operands?]
     (cpu-driver/with-stream-dispatch stream
-      (if-let [built-in (get (binary-accum-constant-table) [(dtype/get-datatype dest)
-                                                            operation
-                                                            reverse-operands?])]
-        (built-in
-         (->buffer dest) (->dimensions dest) dest-alpha
-         scalar (ct/ecount dest))
-        (if-let [operand (get @custom-op-table [operation :binary])]
-          (let [built-in (get (binary-accum-constant-table) [(dtype/get-datatype dest)
-                                                             :custom])]
-            (built-in (->buffer dest) (->dimensions dest) dest-alpha
-                      scalar (ct/ecount dest)
-                      operand reverse-operands?))
-          (throw (ex-info "Failed to find operand" {:operand operation}))))))
+      (let [built-in (get (binary-accum-constant-table) [(dtype/get-datatype dest)
+                                                         :custom])]
+        (built-in (->buffer dest) (->dimensions dest) dest-alpha
+                  scalar (ct/ecount dest)
+                  (get-binary-operand operation) reverse-operands?))))
 
   (binary-op-constant! [stream dest x x-alpha scalar operation reverse-operands?]
     (cpu-driver/with-stream-dispatch stream
-      (if-let [built-in (get (binary-op-constant-table) [(dtype/get-datatype dest)
-                                                         operation
-                                                         reverse-operands?])]
-        (built-in
-         (->buffer dest) (->dimensions dest)
-         (->buffer x) (->dimensions x) x-alpha
-         scalar (max (ct/ecount dest) (ct/ecount x)))
-        (if-let [operand (get @custom-op-table [operation :binary])]
-          (let [built-in (get (binary-op-constant-table) [(dtype/get-datatype dest)
-                                                          :custom])]
-            (built-in
-             (->buffer dest) (->dimensions dest)
-             (->buffer x) (->dimensions x) x-alpha
-             scalar (max (ct/ecount dest) (ct/ecount x))
-             operand reverse-operands?))
-          (throw (ex-info "Failed to find operand" {:operand operation}))))))
+      (let [built-in (get (binary-op-constant-table) [(dtype/get-datatype dest)
+                                                      :custom])]
+        (built-in (->buffer dest) (->dimensions dest)
+                  (->buffer x) (->dimensions x) x-alpha
+                  scalar (max (ct/ecount dest) (ct/ecount x))
+                  (get-binary-operand operation) reverse-operands?))))
 
   (binary-accum! [stream dest dest-alpha y y-alpha operation
                   reverse-operands? dest-requires-cas?]
     (let [n-elems (max (ct/ecount dest) (ct/ecount y))]
       (if dest-requires-cas?
         (cpu-driver/with-stream-dispatch stream
-          (if-let [built-in (get (binary-accum-table) [(dtype/get-datatype dest)
-                                                       operation
-                                                       reverse-operands?])]
-            (built-in
-             (->buffer dest) (->dimensions dest) dest-alpha
-             (->buffer y) (->dimensions y) y-alpha
-             n-elems)
-            (if-let [operand (get @custom-op-table [operation :binary])]
-              (let [built-in (get (binary-accum-table) [(dtype/get-datatype dest)
-                                                        :custom])]
-                (built-in
-                 (->buffer dest) (->dimensions dest) dest-alpha
-                 (->buffer y) (->dimensions y) y-alpha
-                 n-elems operand reverse-operands?))
-              (throw (ex-info "Failed to find operand" {:operand operation})))))
+          (let [built-in (get (binary-accum-table) [(dtype/get-datatype dest)
+                                                    :custom])]
+            (built-in (->buffer dest) (->dimensions dest) dest-alpha
+                      (->buffer y) (->dimensions y) y-alpha
+                      n-elems (get-binary-operand operation) reverse-operands?)))
         ;;If the operation does not require a CAS op then we can use the full
         ;;parallelism of the binary op.  Unfortunately if it does then we have to do a
         ;;lot of things in single-threaded mode.
@@ -329,23 +230,15 @@ nor a BinaryOp nor a TypedBinaryOp."
           (tm/binary-op! stream dest y y-alpha dest dest-alpha operation)
           (tm/binary-op! stream dest dest dest-alpha y y-alpha operation)))))
 
+
   (binary-op! [stream dest x x-alpha y y-alpha operation]
     (cpu-driver/with-stream-dispatch stream
-      (if-let [built-in (get (binary-op-table) [(dtype/get-datatype dest) operation])]
-        (built-in
-         (->buffer dest) (->dimensions dest)
-         (->buffer x) (->dimensions x) x-alpha
-         (->buffer y) (->dimensions y) y-alpha
-         (max (ct/ecount x) (ct/ecount y) (ct/ecount dest)))
-        (if-let [operand (get @custom-op-table [operation :binary])]
-          (let [built-in (get (binary-op-table) [(dtype/get-datatype dest) :custom])]
-            (built-in
-             (->buffer dest) (->dimensions dest)
-             (->buffer x) (->dimensions x) x-alpha
-             (->buffer y) (->dimensions y) y-alpha
-             (max (ct/ecount x) (ct/ecount y) (ct/ecount dest))
-             operand))
-          (throw (ex-info "Failed to find operand" {:operand operation}))))))
+      (let [built-in (get (binary-op-table) [(dtype/get-datatype dest) :custom])]
+        (built-in (->buffer dest) (->dimensions dest)
+                  (->buffer x) (->dimensions x) x-alpha
+                  (->buffer y) (->dimensions y) y-alpha
+                  (max (ct/ecount x) (ct/ecount y) (ct/ecount dest))
+                  (get-binary-operand operation)))))
 
 
   (ternary-op! [stream dest x x-alpha y y-alpha z z-alpha operation]
@@ -382,20 +275,12 @@ nor a BinaryOp nor a TypedBinaryOp."
 
   (unary-reduce! [stream output input-alpha input op]
     (cpu-driver/with-stream-dispatch stream
-      (if-let [built-in (get-in (unary-reduce-table) [[(dtype/get-datatype output) op]
-                                                      :unary-reduce!])]
-        (built-in
-         (->buffer output) (->dimensions output)
-         input-alpha (->buffer input) (->dimensions input))
-        (if-let [operand (get @custom-op-table [op :unary-reduce])]
-          (let [built-in (get-in (unary-reduce-table)
-                                 [[(dtype/get-datatype output) :custom]
-                                  :unary-reduce!])]
-            (built-in
-             (->buffer output) (->dimensions output)
-             input-alpha (->buffer input) (->dimensions input)
-             operand))
-          (throw (ex-info "Failed to find operator" {:operator op}))))))
+      (let [built-in (get-in (unary-reduce-table)
+                             [[(dtype/get-datatype output) :custom]
+                              :unary-reduce!])]
+        (built-in (->buffer output) (->dimensions output)
+                  input-alpha (->buffer input) (->dimensions input)
+                  (get-unary-reduce-operand op)))))
 
   (gemm! [stream
           C c-colstride
@@ -620,25 +505,12 @@ nor a BinaryOp nor a TypedBinaryOp."
                       {:item item})))))
 
 
-(defn- builtin-custom-list
-  [initial-builtins custom-key]
-  (->> (concat (->> initial-builtins
-                    (map (fn [[k v]]
-                           (second k))))
-               (->> @custom-op-table
-                    (filter #(= custom-key (second (first %))))
-                    (map ffirst)))
-       (remove #(= :custom %))
-       distinct
-       sort))
-
-
 (defn all-known-operators
   "Return a map of optype->operator-list."
   []
-  {:unary (builtin-custom-list (unary-op-table) :unary)
-   :binary (builtin-custom-list (binary-op-table) :binary)
-   :unary-reduce (builtin-custom-list (unary-reduce-table) :unary-reduce)
+  {:unary (math-ops/builtin-operator-list :unary)
+   :binary (math-ops/builtin-operator-list :binary)
+   :unary-reduce (math-ops/builtin-operator-list :unary-reduce)
    :ternary [:select]
    :blas [:gemm]
    :lapack (->> (jna-lapack-fn-map)
