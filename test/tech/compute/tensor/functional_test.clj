@@ -30,3 +30,8 @@
       (is (functional/eq 8
                          (func-impl/eval-expr
                           {:symbol-map @local-lang-atom} '(test-fn 4)))))))
+
+
+(deftest binary-symbols-extremely-flexible
+  (is (= 14
+         (functional/max (int-array (range 5 15))))))

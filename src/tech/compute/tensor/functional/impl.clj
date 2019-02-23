@@ -88,18 +88,17 @@
   "Perform a binary operation falling back to the registered interface
   if the operands aren't tensors."
   [op-kwd arglist]
-  (when-not (>= (count arglist) 2)
-    (throw (ex-info "Binary operations take at least 2 arguments"
-                    {:arg-count (count arglist)})))
-  (if-let [tens-seq (->> arglist
-                         (filter tensor?)
-                         seq)]
-    (let [accum (ct/assign! (ct/from-prototype (first tens-seq))
-                            (first arglist))]
-      (doseq [rhs (rest arglist)]
-        (ct/binary-op! accum 1.0 accum 1.0 rhs op-kwd))
-      accum)
-    (scalar-binary-op op-kwd arglist)))
+  (if (< (count arglist) 2)
+    (unary-reduce op-kwd (first arglist))
+    (if-let [tens-seq (->> arglist
+                           (filter tensor?)
+                           seq)]
+      (let [accum (ct/assign! (ct/from-prototype (first tens-seq))
+                              (first arglist))]
+        (doseq [rhs (rest arglist)]
+          (ct/binary-op! accum 1.0 accum 1.0 rhs op-kwd))
+        accum)
+      (scalar-binary-op op-kwd arglist))))
 
 
 (defn binary-op-fallback
