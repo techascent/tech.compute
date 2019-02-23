@@ -122,7 +122,7 @@
     (scalar-binary-op op-kwd arglist)))
 
 
-(def ^:dynamic *registered-language-fns* (atom {}))
+(defonce ^:dynamic *registered-language-fns* (atom {}))
 
 
 (defn register-symbol!
@@ -148,18 +148,21 @@
 (defn eval-expr
   "Tiny simple interpreter."
   [env math-expr]
-  (if (sequential? math-expr)
+  (cond
+    (sequential? math-expr)
     (if (symbol? (first math-expr))
       (let [fn-name (first math-expr)
-          ;;Force errors early
-          expr-args (mapv (partial eval-expr env) (rest math-expr))
-          {op-type :type
-           operand :operand} (get-operand env fn-name)]
+            ;;Force errors early
+            expr-args (mapv (partial eval-expr env) (rest math-expr))
+            operand (get-operand env fn-name)]
         (try
-        (apply operand env expr-args)
-        (catch Throwable e
-          (throw (ex-info (format "Operator %s failed:\n%s" math-expr (.getMessage e))
-                          {:math-expression math-expr
-                           :error e})))))
+          (apply operand env expr-args)
+          (catch Throwable e
+            (throw (ex-info (format "Operator %s failed:\n%s" math-expr (.getMessage e))
+                            {:math-expression math-expr
+                             :error e})))))
       (map partial eval-expr env math-expr))
+    (symbol? math-expr)
+    (get-operand env math-expr)
+    :else
     math-expr))

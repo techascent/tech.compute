@@ -164,6 +164,58 @@
       :float64 `(.doubleOp ~item ~opcode ~opflags))))
 
 
+(defmacro make-unary-reader
+  [datatype x x-idx->addr x-alpha unary-op]
+  (let [jvm-datatype (unsigned/datatype->jvm-datatype datatype)]
+    `(let [x-alpha# (unsigned/datatype->cast-fn :ignored ~datatype ~x-alpha)
+           x# ~x
+           x-idx->addr# ~x-idx->addr
+           custom# (as-unary-op ~unary-op)
+           typed-custom# (as-typed-unary-op ~unary-op)]
+       (if (= x-alpha# (unsigned/datatype->cast-fn :ignored ~datatype 1))
+         (if custom#
+           (primitive/make-converter
+            ~jvm-datatype
+            (store-datatype-cast-fn
+             ~datatype
+             (.op custom#
+                  (read-datatype-cast-fn
+                   ~datatype
+                   (b-get x# (.idx_to_address x-idx->addr# ~'idx))))))
+           (primitive/make-converter
+            ~jvm-datatype
+            (store-datatype-cast-fn
+             ~datatype
+             (call-typed-custom
+              ~datatype
+              typed-custom#
+              (read-datatype-cast-fn
+               ~datatype
+               (b-get x# (.idx_to_address x-idx->addr# ~'idx)))))))
+         (if custom#
+           (primitive/make-converter
+            ~jvm-datatype
+            (store-datatype-cast-fn
+             ~datatype
+             (* (.op custom#
+                     (read-datatype-cast-fn
+                      ~datatype
+                      (b-get x# (.idx_to_address x-idx->addr# ~'idx))))
+                x-alpha#)))
+           (primitive/make-converter
+            ~jvm-datatype
+            (store-datatype-cast-fn
+             ~datatype
+             (call-typed-custom
+              ~datatype
+              typed-custom#
+              (*
+               (read-datatype-cast-fn
+                ~datatype
+                (b-get x# (.idx_to_address x-idx->addr# ~'idx)))
+               x-alpha#)))))))))
+
+
 (defmacro ^:private custom-accum!-impl
   [datatype]
   (let [jvm-datatype (unsigned/datatype->jvm-datatype datatype)]
@@ -174,36 +226,10 @@
              dest-idx->address# (get-elem-dims->address dest-dims#
                                                         (get dest-dims# :shape))
              max-shape# (max-shape-from-dimensions dest-dims#)
-             dest-alpha# (unsigned/datatype->cast-fn :ignored ~datatype dest-alpha#)
-             custom# (as-unary-op unary-op#)
-             typed-custom# (as-typed-unary-op unary-op#)
              writer# (writers/get-serial-writer ~jvm-datatype)]
-         (if custom#
-           (writer# dest# dest-dims# max-shape# n-elems#
-                    (primitive/make-converter
-                     ~jvm-datatype
-                     (store-datatype-cast-fn
-                      ~datatype
-                      (.op custom#
-                           (*
-                            (read-datatype-cast-fn
-                             ~datatype
-                             (b-get dest# (.idx_to_address dest-idx->address#
-                                                           ~'idx)))
-                            dest-alpha#)))))
-           (writer# dest# dest-dims# max-shape# n-elems#
-                    (primitive/make-converter
-                     ~jvm-datatype
-                     (store-datatype-cast-fn
-                      ~datatype
-                      (call-typed-custom
-                       ~datatype typed-custom#
-                       (*
-                        (read-datatype-cast-fn
-                         ~datatype
-                         (b-get dest# (.idx_to_address dest-idx->address#
-                                                       ~'idx)))
-                        dest-alpha#))))))))))
+         (writer# dest# dest-dims# max-shape# n-elems#
+                  (make-unary-reader ~datatype dest# dest-idx->address# dest-alpha#
+                                     unary-op#))))))
 
 
 (defmacro ^:private custom-unary-op!-impl
@@ -216,19 +242,10 @@
              max-shape# (max-shape-from-dimensions dest-dims# x-dims#)
              x# (item->typed-nio-buffer ~datatype x#)
              x-idx->address# (get-elem-dims->address x-dims# max-shape#)
-             x-alpha# (unsigned/datatype->cast-fn :ignored ~datatype x-alpha#)
-             ^UnaryOp custom-op# unary-op#
              writer# (writers/get-parallel-writer ~jvm-datatype)]
          (writer# dest# dest-dims# max-shape# n-elems#
-                  (primitive/make-converter
-                   ~jvm-datatype
-                   (store-datatype-cast-fn
-                    ~datatype
-                    (.op custom-op#
-                         (* (read-datatype-cast-fn
-                             ~datatype
-                             (b-get x# (.idx_to_address x-idx->address# ~'idx)))
-                            x-alpha#)))))))))
+                  (make-unary-reader ~datatype x# x-idx->address#
+                                     x-alpha# unary-op#))))))
 
 
 (defmacro make-custom-unary-ops

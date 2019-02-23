@@ -38,7 +38,9 @@
                  ~(format "Reduction with operator %s" (name fn-name))
                  [~'tensor]
                  (func-impl/unary-reduce ~fn-name ~'tensor))
-               (func-impl/register-symbol! (symbol ~sym-name) ~fn-sym))))
+               (func-impl/register-symbol! (symbol ~sym-name)
+                                           (fn [_# & args#]
+                                             (apply ~fn-sym args#))))))
        ~(if (or (fn-type-seq :unary)
                 (fn-type-seq :binary))
           `(do
@@ -55,7 +57,7 @@
                     `(defn ~(symbol (name fn-name))
                        ~(format "Apply unary operator %s" (name fn-name))
                        [~'tensor-or-scalar]
-                       (func-impl/unary-op ~'tensor-or-scalar))
+                       (func-impl/unary-op ~fn-name ~'tensor-or-scalar))
                     (fn-type-seq :binary)
                     `(defn ~(symbol (name fn-name))
                        ~(format "Apply binary operator %s" (name fn-name))
@@ -63,7 +65,8 @@
                        (func-impl/binary-op ~fn-name (concat [~'tensor-or-scalar]
                                                              ~'args))))
              (func-impl/register-symbol! (symbol ~(name fn-name))
-                                         ~(symbol (name fn-name))))))))
+                                         (fn [_# & args#]
+                                           (apply ~(symbol (name fn-name)) args#))))))))
 
 
 (defmacro ^:private make-standard-fns
