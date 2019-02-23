@@ -184,3 +184,19 @@
               ~op-datatype
               (->typed-binary-operator ~custom-op)
               ~x-expr ~y-expr ~unsigned-flag))))))))
+
+
+(defmacro make-converter-elide-modulators
+  [datatype
+   reverse-operation? custom-op
+   x-alpha y-alpha
+   x-expr y-expr]
+  `(if (and (= ~x-alpha (datatype->cast-fn ~datatype 1))
+            (= ~y-alpha (datatype->cast-fn ~datatype 1)))
+     (make-custom-binary-op-converter
+      ~datatype ~reverse-operation? ~custom-op
+      ~x-expr ~y-expr)
+     (make-custom-binary-op-converter
+      ~datatype ~reverse-operation? ~custom-op
+      (* ~x-alpha ~x-expr)
+      (* ~y-alpha ~y-expr))))

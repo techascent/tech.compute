@@ -35,16 +35,16 @@
              dest-idx->address# (get-elem-dims->address dest-dims#
                                                         (get dest-dims# :shape))
              max-shape# (max-shape-from-dimensions dest-dims#)
-             scalar# (double (unsigned/datatype->cast-fn :ignored ~datatype scalar#))
+             scalar# (unsigned/datatype->cast-fn :ignored ~datatype scalar#)
              dest-alpha# (unsigned/datatype->cast-fn :ignored ~datatype dest-alpha#)
              writer# (writers/get-serial-writer ~jvm-datatype)
-             converter# (bin-impls/make-custom-binary-op-converter
+             converter# (bin-impls/make-converter-elide-modulators
                          ~datatype reverse-operation?# custom-op#
-                         (double (* (read-datatype-cast-fn
-                                     ~datatype
-                                     (b-get dest# (.idx_to_address dest-idx->address#
-                                                                   ~'idx)))
-                                    dest-alpha#))
+                         dest-alpha# (unsigned/datatype->cast-fn :ignored ~datatype 1)
+                         (read-datatype-cast-fn
+                          ~datatype
+                          (b-get dest# (.idx_to_address dest-idx->address#
+                                                        ~'idx)))
                          scalar#)]
          (writer# dest# dest-dims# max-shape# n-elems# converter#)))))
 
@@ -94,16 +94,15 @@
              y-idx->address# (get-elem-dims->address y-dims# max-shape#)
              y-alpha# (datatype->cast-fn ~datatype y-alpha#)
              writer# (writers/get-serial-writer ~jvm-datatype)
-             converter# (bin-impls/make-custom-binary-op-converter
+             converter# (bin-impls/make-converter-elide-modulators
                          ~datatype reverse-operands?# custom-op#
-                         (* (read-datatype-cast-fn
-                             ~datatype
-                             (b-get dest# (.idx_to_address dest-idx->address# ~'idx)))
-                            dest-alpha#)
-                         (* (read-datatype-cast-fn
-                             ~datatype
-                             (b-get y# (.idx_to_address y-idx->address# ~'idx)))
-                            y-alpha#))]
+                         dest-alpha# y-alpha#
+                         (read-datatype-cast-fn
+                          ~datatype
+                          (b-get dest# (.idx_to_address dest-idx->address# ~'idx)))
+                         (read-datatype-cast-fn
+                          ~datatype
+                          (b-get y# (.idx_to_address y-idx->address# ~'idx))))]
          (writer# dest# dest-dims# max-shape# n-elems# converter#)))))
 
 

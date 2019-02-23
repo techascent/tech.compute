@@ -197,11 +197,11 @@
             ~jvm-datatype
             (store-datatype-cast-fn
              ~datatype
-             (* (.op custom#
-                     (read-datatype-cast-fn
-                      ~datatype
-                      (b-get x# (.idx_to_address x-idx->addr# ~'idx))))
-                x-alpha#)))
+             (.op custom#
+                  (* x-alpha#
+                   (read-datatype-cast-fn
+                    ~datatype
+                    (b-get x# (.idx_to_address x-idx->addr# ~'idx)))))))
            (primitive/make-converter
             ~jvm-datatype
             (store-datatype-cast-fn
@@ -209,11 +209,10 @@
              (call-typed-custom
               ~datatype
               typed-custom#
-              (*
-               (read-datatype-cast-fn
-                ~datatype
-                (b-get x# (.idx_to_address x-idx->addr# ~'idx)))
-               x-alpha#)))))))))
+              (* (read-datatype-cast-fn
+                  ~datatype
+                  (b-get x# (.idx_to_address x-idx->addr# ~'idx)))
+                 x-alpha#)))))))))
 
 
 (defmacro ^:private custom-accum!-impl
@@ -228,8 +227,8 @@
              max-shape# (max-shape-from-dimensions dest-dims#)
              writer# (writers/get-serial-writer ~jvm-datatype)]
          (writer# dest# dest-dims# max-shape# n-elems#
-                  (make-unary-reader ~datatype dest# dest-idx->address# dest-alpha#
-                                     unary-op#))))))
+                  (make-unary-reader ~datatype dest# dest-idx->address#
+                                     dest-alpha# unary-op#))))))
 
 
 (defmacro ^:private custom-unary-op!-impl
