@@ -5,6 +5,8 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :plugins [[lein-tools-deps "0.4.1"]]
   :middleware [lein-tools-deps.plugin/resolve-dependencies-with-deps-edn]
-  :lein-tools-deps/config {:config-files [:install :user :project]}
+  :lein-tools-deps/config {:config-files [:install :user :project]
+                           :clojure-executables ["/usr/local/bin/clojure"
+                                                 "/usr/bin/clojure"]}
   :java-source-paths ["java"]
   :profiles {:dev {:dependencies [[com.github.fommil.netlib/all "1.1.2" :extension "pom"]]}})
