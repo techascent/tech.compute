@@ -9,4 +9,5 @@
                            :clojure-executables ["/usr/local/bin/clojure"
                                                  "/usr/bin/clojure"]}
   :java-source-paths ["java"]
-  :profiles {:dev {:dependencies [[com.github.fommil.netlib/all "1.1.2" :extension "pom"]]}})
+  :profiles {:dev {:dependencies [[com.github.fommil.netlib/all "1.1.2" :extension "pom"]]}
+             :clojure-10 {:dependencies [[org.clojure/clojure "1.10.0"]]}})
