@@ -8,8 +8,7 @@
             [tech.compute.registry :as registry]
             [tech.datatype.javacpp :as jcpp-dtype])
   (:import [tech.datatype.jna TypedPointer]
-           [com.sun.jna Pointer]
-           [org.bytedeco.javacpp.Pointer]))
+           [com.sun.jna Pointer]))
 
 
 
