@@ -69,7 +69,7 @@ In general we want as much error checking and analysis done in this file as oppo
 (set! *unchecked-math* :warn-on-boxed)
 
 
-(declare reinterpret-tensor typed-assign! make-dense tensor-or-number)
+(declare reinterpret-tensor typed-assign! make-dense tensor-or-number to-jvm)
 
 ;;Tensors are a tuple of device (driver for now) dimensions and index system and buffer.
 (defrecord Tensor [dimensions buffer]
@@ -107,11 +107,12 @@ In general we want as much error checking and analysis done in this file as oppo
     (primitive/->buffer-backing-store buffer))
   primitive/PToArray
   (->array [tensor]
-    (error-checking/ensure-simple-tensor tensor)
-    (primitive/->array buffer))
+    (when (error-checking/simple-tensor? tensor)
+      (primitive/->array buffer)))
   (->array-copy [tensor]
-    (error-checking/ensure-simple-tensor tensor)
-    (primitive/->array-copy buffer))
+    (to-jvm tensor
+            :datatype (dtype/get-datatype tensor)
+            :base-storage :jvm-array))
   jna/PToPtr
   (->ptr-backing-store [tensor]
     (error-checking/ensure-simple-tensor tensor)
