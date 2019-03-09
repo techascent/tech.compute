@@ -209,7 +209,7 @@ In general we want as much error checking and analysis done in this file as oppo
 
 (defn ->tensor
   "Create a tensor from the data by copying the data at least once."
-  [data & {:keys [datatype unchecked? shape stream force-copy?]
+  [data & {:keys [datatype unchecked? shape stream]
            :as options}]
   (if (tensor? data)
     data
