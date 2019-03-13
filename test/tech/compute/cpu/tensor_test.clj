@@ -17,7 +17,9 @@
             [tech.datatype :as dtype]
             [tech.datatype.jna :as dtype-jna]
             [tech.compute.cpu.math-operands :as math-ops]
-            [clojure.core.matrix :as m])
+            [clojure.core.matrix :as m]
+            [tech.compute.tensor.functional.impl :as tens-fun-impl]
+            [tech.compute.tensor.functional])
   (:import [tech.compute.cpu UnaryOp BinaryOp UnaryReduce]))
 
 
@@ -248,3 +250,31 @@
                                   1.0 src-matrix :custom-reduce)]
     (is (= [2.0 5.0 8.0]
            (mapv double (dtype/->vector dst-val))))))
+
+
+(deftest range-map-vec
+  (let [test-item (double-array (range 10))
+        new-item (tens-fun-impl/eval-expr {:symbol-map {'item test-item}}
+                                          '(/ (- item (min item))
+                                              (- (max item) (min item))))]
+    (is (m/equals [0.0
+                   0.1111111111111111
+                   0.2222222222222222
+                   0.3333333333333333
+                   0.4444444444444444
+                   0.5555555555555556
+                   0.6666666666666666
+                   0.7777777777777778
+                   0.8888888888888888
+                   1.0]
+                  (vec new-item)
+                  0.001))))
+
+
+(deftest test-div-reduce
+  (let [test-item (double-array (range 15 5 -1))
+        new-item (tens-fun-impl/eval-expr {:symbol-map {'item test-item}}
+                                          '(div-reduce item))]
+    (is (m/equals (double (apply / (range 15 5 -1)))
+                  (double new-item)
+                  0.001))))

@@ -12,7 +12,7 @@
 
 
 ;; unary, binary, and reduction operators are stored in the operand table.
-(def ^:dynamic *operand-table* (atom {}))
+(defonce ^:dynamic *operand-table* (atom {}))
 
 
 (defn add-unary-op!
@@ -74,7 +74,8 @@ nor a BinaryOp nor a TypedBinaryOp."
   (if-let [retval (get @*operand-table* [op-kwd op-type])]
     retval
     (throw (ex-info (format "Failed to find %s operand %s"
-                            (name op-type) (name op-kwd))))))
+                            (name op-type) (name op-kwd))
+                    {}))))
 
 
 (defn get-unary-operand

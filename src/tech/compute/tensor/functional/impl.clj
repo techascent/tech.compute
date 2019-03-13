@@ -180,21 +180,21 @@
   If fn-name is namespaced the function will be registered in the local namespace
   but the system will call the namespaced function as the tensor math op."
   [registration-atom fn-name fn-type-seq & [binary-scalar-fallback]]
-  (let [red-symbol-remap (get {:/ :div} fn-name fn-name)
-        sym-name (name red-symbol-remap)]
+  (let [sym-name (name fn-name)]
     `(do
        ~(when (fn-type-seq :unary-reduce)
-          (let [fn-sym (symbol (str sym-name "-reduce"))
-                sym-name (name fn-sym)]
+          (let [red-symbol-remap (get {:/ :div} fn-name fn-name)
+                remap-sym-name (name red-symbol-remap)
+                fn-sym (symbol (str remap-sym-name "-reduce"))]
             `(do
-               (defn ~(symbol sym-name)
+               (defn ~fn-sym
                  ~(format "Reduction with operator %s" sym-name)
                  [~'tensor]
                  (unary-reduce ~fn-name ~'tensor))
                (register-symbol! ~registration-atom
-                                 (symbol ~sym-name)
+                                 (symbol ~(name fn-sym))
                                  (fn [_# & args#]
-                                   (apply ~(symbol sym-name) args#))))))
+                                   (apply ~fn-sym args#))))))
        ~(if (or (fn-type-seq :unary)
                 (fn-type-seq :binary))
           `(do
