@@ -88,19 +88,6 @@ There is one default driver provided for a pure-cpu implementation
 
 1. [cpu](src/tech/compute/cpu/driver.clj)
 
-### Maths!
-
-
-Included in this system is a simple, generic math [library](src/tech/compute/tensor.clj)
-useful across a range of devices.  This is not meant to be a comprehensive solution but
-rather enough of a solution as to drastically cut down on the amount of engineering
-required to move a problem onto those other devices and then use potentially custom code
-or other libraries once on those devices.  As such it is engineered with a focus on
-simplicity of backend implementation and generality of operations.
-
-
-[Here](docs/tensor.md) is a document describing it in more detail.
-
 
 ## License
 

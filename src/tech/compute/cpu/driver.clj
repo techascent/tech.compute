@@ -1,23 +1,12 @@
 (ns tech.compute.cpu.driver
   (:require [tech.compute.driver :as drv]
-            [tech.datatype :as dtype]
-            [tech.datatype.java-primitive :as primitive]
-            [tech.datatype.java-unsigned :as unsigned]
+            [tech.v2.datatype :as dtype]
+            [tech.v2.datatype.protocols :as dtype-proto]
             [clojure.core.async :as async]
             [tech.resource :as resource]
             [tech.resource.stack :as stack]
             [tech.compute :as compute]
-            [tech.compute.registry :as registry]
-            [tech.compute.cpu.jna-blas :as jna-blas]
-            [tech.datatype.jna :as dtype-jna]
-            ;;typed buffer implementation of buffer protocol
-            [tech.compute.cpu.typed-buffer]
-            ;;typed pointer implementation of buffer protocol
-            ;;Also enables javacpp
-            [tech.compute.cpu.typed-pointer])
-  (:import  [java.nio ByteBuffer ShortBuffer IntBuffer
-             LongBuffer FloatBuffer DoubleBuffer]
-            [tech.datatype.java_unsigned TypedBuffer]))
+            [tech.compute.registry :as registry]))
 
 
 (set! *warn-on-reflection* true)
@@ -180,19 +169,6 @@ Use with care; the synchonization primitives will just hang with this stream."
     retval))
 
 
-(def ^:dynamic *default-container-fn* dtype/make-array-of-type)
-
-
-(defn- make-typed-thing
-  [datatype n-elems options]
-  (if (contains? options :container-fn)
-    ((:container-fn options) datatype n-elems)
-    (if (primitive/is-jvm-datatype? datatype)
-      (*default-container-fn* datatype n-elems options)
-      (unsigned/make-typed-buffer datatype n-elems))))
-
-
-
 (extend-type CPUDevice
   drv/PDevice
 
@@ -209,11 +185,10 @@ Use with care; the synchonization primitives will just hang with this stream."
 
   (allocate-device-buffer [impl elem-count elem-type options]
     (check-stream-error-atom impl)
-    (make-typed-thing elem-type elem-count options))
+    (dtype/make-container :native-buffer elem-type elem-count options))
 
   (acceptable-device-buffer? [device item]
-    (and (or (dtype-jna/typed-pointer? item)
-             (unsigned/typed-buffer? item))))
+    (dtype-proto/convertible-to-writer? item))
 
   (device->device-copy-compatible? [src-device dst-device] nil))
 
@@ -228,11 +203,10 @@ Use with care; the synchonization primitives will just hang with this stream."
 
   (allocate-host-buffer [impl elem-count elem-type options]
     (check-stream-error-atom impl)
-    (make-typed-thing elem-type elem-count options))
+    (dtype/make-container :native-buffer elem-type elem-count options))
 
   (acceptable-host-buffer? [impl item]
-    (and (or (dtype-jna/typed-pointer? item)
-             (unsigned/typed-buffer? item)))))
+    (dtype-proto/convertible-to-writer? item)))
 
 
 (declare default-cpu-stream)
@@ -252,3 +226,11 @@ Use with care; the synchonization primitives will just hang with this stream."
 (registry/register-driver (driver))
 (registry/set-cpu-driver-name! (-> (driver)
                                    drv/driver-name))
+
+
+(extend-type Object
+  drv/PDriverProvider
+  (get-driver [impl] (driver))
+  drv/PDeviceProvider
+  (get-device [impl]
+    (first (drv/get-devices (driver)))))

@@ -1,4 +1,4 @@
-(defproject techascent/tech.compute "3.19-SNAPSHOT"
+(defproject techascent/tech.compute "4.22"
   :description "Library designed to provide a generic compute abstraction to allow some level of shared implementation between a cpu, cuda, openCL, webworkers, etc."
   :url "http://github.com/tech-ascent/tech.compute"
   :license {:name "Eclipse Public License"

@@ -1,7 +1,7 @@
 (ns tech.compute
   (:require [tech.compute.driver :as drv]
             [tech.compute.registry :as registry]
-            [tech.datatype :as dtype]
+            [tech.v2.datatype :as dtype]
             [clojure.test :refer :all]
             [tech.resource :as resource]))
 
@@ -63,12 +63,6 @@ intended usage of the buffer."
 
 
 ;; Device API
-
-
-(defn memory-info
-  "Get a map of {:free <long> :total <long>} describing the free and total memory in bytes."
-  [device]
-  (drv/memory-info device))
 
 (defn supports-create-stream?
   "Does this device support create-stream?"
