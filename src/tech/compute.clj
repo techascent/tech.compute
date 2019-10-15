@@ -87,36 +87,6 @@ intended usage of the buffer."
   [device elem-count elem-type & {:as options}]
   (drv/allocate-device-buffer device elem-count elem-type options))
 
-
-;;Buffer API
-(defn sub-buffer
-  "Create a sub buffer that shares the backing store with the main buffer."
-  ([device-buffer offset length]
-   (let [original-size (dtype/ecount device-buffer)
-         new-max-length (- original-size offset)]
-     (when-not (<= length new-max-length)
-       (throw (ex-info "Sub buffer out of range."
-                      {:desired-length length
-                       :ecount-minus-offset new-max-length})))
-     (drv/sub-buffer device-buffer offset length)))
-  ([buffer offset]
-   (sub-buffer buffer offset (- (dtype/ecount buffer) offset))))
-
-
-(defn alias?
-  "Do these two buffers alias each other?  Meaning do they start at the same address and
-  overlap completely?"
-  [lhs-dev-buffer rhs-dev-buffer]
-  (drv/alias? lhs-dev-buffer rhs-dev-buffer))
-
-
-(defn partially-alias?
-  "Do these two buffers partially alias each other?  Does some sub-range of their data
-  overlap?"
-  [lhs-dev-buffer rhs-dev-buffer]
-  (drv/partially-alias? lhs-dev-buffer rhs-dev-buffer))
-
-
 ;;Stream API
 
 (defn- check-legal-copy!

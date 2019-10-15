@@ -70,18 +70,6 @@ computation.  No options at this time.")
 buffer for this device."))
 
 
-(defprotocol PBuffer
-  "Interface to create sub-buffers out of larger contiguous buffers."
-  (sub-buffer [buffer offset length]
-    "Create a sub buffer that shares the backing store with the main buffer.")
-  (alias? [lhs-dev-buffer rhs-dev-buffer]
-    "Do these two buffers alias each other?  Meaning do they start at the same address
-and overlap completely?")
-  (partially-alias? [lhs-dev-buffer rhs-dev-buffer]
-    "Do these two buffers partially alias each other?  Does some sub-range of their data
-overlap?"))
-
-
 (defprotocol PStream
   "Basic functionality expected of streams.  Streams are an abstraction of a stream of
   execution and can be synchonized with the host or with each other using events."
