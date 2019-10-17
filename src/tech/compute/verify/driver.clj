@@ -22,7 +22,7 @@
       (dtype/copy! buf-a 0 output-data 0 10)
       (compute/copy-host->device buf-a 0 buf-b 0 10)
       (compute/copy-device->host buf-b 0 output-buf-a 0 10)
-      (compute/sync-with-host stream {:gc-roots [buf-a buf-b]})
+      (compute/sync-with-host stream)
       (dtype/copy! output-buf-a 0 output-data 0 10)
       (is (dfn/equals [100.0 1.0 2.0 3.0 4.0 5.0 6.0 7.0 8.0 9.0]
                       output-data)))))
