@@ -22,7 +22,8 @@
     (when-not retval
       (throw (Exception.
               (format "%s: No devices found"
-                      (drv/driver-name (default-driver))))))))
+                      (drv/driver-name (default-driver))))))
+    retval))
 
 
 (defn default-stream
