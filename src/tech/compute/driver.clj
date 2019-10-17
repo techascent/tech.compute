@@ -78,6 +78,9 @@ buffer for this device."))
   (copy-device->host [stream device-buffer device-offset
                       host-buffer host-offset elem-count])
   (copy-device->device [stream dev-a dev-a-off dev-b dev-b-off elem-count])
+  (clone-device-tensor [stream tensor options]
+    "Clone a tensor or throw an exception.  Can be used to simplify a tensor
+before attempting to copy back to the host.")
   (sync-with-host [stream]
     "Block host until stream's queue is finished executing")
   (sync-with-stream [src-stream dst-stream]

@@ -1,6 +1,7 @@
 (ns tech.compute
   (:require [tech.compute.driver :as drv]
             [tech.compute.registry :as registry]
+            [tech.compute.context :as compute-ctx]
             [tech.v2.datatype :as dtype]
             [clojure.test :refer :all]
             [tech.resource :as resource]))
@@ -106,7 +107,9 @@ intended usage of the buffer."
 
 (defn- provided-or-default-stream
   [stream device-buffer]
-  (or stream (default-stream (->device device-buffer))))
+  (or stream
+      (:stream compute-ctx/*context)
+      (default-stream (->device device-buffer))))
 
 
 (defn device->device-copy-compatible?
@@ -145,8 +148,10 @@ buffer's device's default stream is used."
 
 (defn sync-with-host
   "Block host until stream's queue is finished executing"
-  [stream & [options]]
-  (drv/sync-with-host stream))
+  ([stream]
+   (drv/sync-with-host stream))
+  ([]
+   (sync-with-host (compute-ctx/default-stream))))
 
 (defn sync-with-stream
   "Create an event in src-stream's execution queue, then have dst stream wait on that
