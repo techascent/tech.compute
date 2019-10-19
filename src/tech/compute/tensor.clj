@@ -3,13 +3,14 @@
   (:require [tech.compute.driver :as drv]
             [tech.compute.context :as compute-ctx]
             [tech.v2.datatype :as dtype]
+            [tech.v2.datatype.protocols :as dtype-proto]
             [tech.v2.tensor.impl :as dtt-impl]
             [tech.v2.tensor.dimensions :as dtt-dims]
             [tech.v2.tensor :as dtt])
   (:import [tech.v2.tensor.impl Tensor]))
 
 
-(defn new-device-tensor
+(defn new-tensor
   ([shape options]
    (let [{:keys [device]} (compute-ctx/options->context options)
          datatype (dtt-impl/default-datatype (:datatype options))
@@ -17,7 +18,7 @@
          dev-buf (drv/allocate-device-buffer device ecount datatype options)]
      (dtt-impl/construct-tensor dev-buf (dtt-dims/dimensions shape))))
   ([shape]
-   (new-device-tensor shape {})))
+   (new-tensor shape {})))
 
 
 (defn new-host-tensor
@@ -53,7 +54,7 @@
          options (-> (assoc options :datatype (dtype/get-datatype input-tens))
                      (compute-ctx/options->context))
          {:keys [stream]} options
-         device-tensor (new-device-tensor (dtype/shape input-tens) options)]
+         device-tensor (new-tensor (dtype/shape input-tens) options)]
      (drv/copy-host->device stream
                             (dtt/tensor->buffer input-tens) 0
                             (dtt/tensor->buffer device-tensor) 0
@@ -79,9 +80,30 @@
    (ensure-device input-tens {})))
 
 
+(defn clone-device-tensor
+  [dev-tens & [options]]
+  (let [result (new-tensor (dtype/shape dev-tens))
+        {:keys [stream]} (compute-ctx/options->context options)]
+    (drv/assign-tensor! stream result dev-tens)
+    result))
+
+
+(defn ->tensor
+  [data & {:keys [datatype device stream sync?]
+           :as options}]
+  (-> (dtt/->tensor data
+                    :container-type :native-buffer
+                    :datatype datatype)
+      (ensure-device options)))
+
+
 (defn clone-to-host
+  "Copy this tensor to the host.  Synchronized by default."
   ([device-tens options]
-   (let [dims-incompatible? (not
+   (let [options (update options
+                         :sync?
+                         #(if (nil? %) true %))
+         dims-incompatible? (not
                              (dtt-impl/simple-dimensions?
                               (dtt-impl/tensor->dimensions device-tens)))
          _ (when (and dims-incompatible?
@@ -91,7 +113,7 @@
          stream (or (:stream options)
                     (drv/default-stream (drv/get-device device-tens)))
          device-tens (if dims-incompatible?
-                      (drv/clone-device-tensor stream device-tens options)
+                      (clone-device-tensor stream device-tens options)
                       device-tens)
          host-tensor (new-host-tensor (dtype/shape device-tens) options)]
      (drv/copy-device->host stream
@@ -102,10 +124,11 @@
        (drv/sync-with-host stream))
      host-tensor))
   ([device-tens]
-   (clone-to-host device-tens {})))
+   (clone-to-host device-tens {:sync? true})))
 
 
 (defn ensure-host
+  "Ensure this tensor is a 'host' tensor.  Synchronized by default."
   ([device-tens options]
    (let [driver (drv/get-driver device-tens)]
      (if (drv/acceptable-host-buffer? driver device-tens)
@@ -113,6 +136,70 @@
        (clone-to-host device-tens options))))
   ([device-tens]
    (ensure-host device-tens {})))
+
+
+(defn ->array
+  [tens & [datatype]]
+  (let [datatype (or datatype (dtype/get-datatype tens))
+        tens (ensure-host tens)]
+    (case datatype
+      :int8 (dtype/->byte-array tens)
+      :int16 (dtype/->short-array tens)
+      :int32 (dtype/->int-array tens)
+      :int64 (dtype/->long-array tens)
+      :float32 (dtype/->float-array tens)
+      :float64 (dtype/->double-array tens))))
+
+
+(defn ->float-array
+  [tens]
+  (->array tens :float32))
+
+
+(defn ->double-array
+  [tens]
+  (->array tens :float64))
+
+
+(defn assign!
+  "Assign the right hand side to the left hand side returning the left hand side.
+  left hand side must be a device tensor "
+  [lhs rhs & [options]]
+  (let [{:keys [stream]} (compute-ctx/options->context options)
+        lhs (dtt/ensure-tensor lhs)
+        lhs-reader? (dtype-proto/convertible-to-reader? lhs)]
+    (if (number? rhs)
+      (if lhs-reader?
+        (dtype/set-constant! lhs 0 rhs (dtype/ecount lhs))
+        (drv/assign-constant! stream lhs rhs))
+      (let [lhs-shape (dtype/shape lhs)
+            rhs-shape (dtype/shape rhs)
+            rhs-reader? (dtype-proto/convertible-to-reader? rhs)
+            rhs (if (= lhs-shape rhs-shape)
+                  rhs
+                  (dtt/broadcast rhs lhs-shape))]
+        (cond
+          (and lhs-reader? rhs-reader?)
+          (dtype/copy! rhs lhs)
+          (and (dtt-impl/simple-dimensions? (dtt/tensor->dimensions lhs))
+               (dtt-impl/simple-dimensions? (dtt/tensor->dimensions rhs)))
+          (drv/copy-device->device stream
+                                   (dtt/tensor->buffer lhs) 0
+                                   (dtt/tensor->buffer rhs) 0
+                                   (dtype/ecount lhs))
+          :else
+          (drv/assign-tensor! stream lhs rhs))))
+    lhs))
+
+
+(defn rows
+  [tens]
+  (dtt/rows tens))
+
+
+(defn columns
+  [tens]
+  (dtt/columns tens))
 
 
 (extend-type Tensor
