@@ -9,5 +9,5 @@
 (use-fixtures :each test-utils/test-wrapper)
 
 
-(def-all-dtype-test simple-stream
+(deftest simple-stream
   (verify-driver/simple-stream (cpu/driver) test-utils/*datatype*))

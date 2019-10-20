@@ -11,7 +11,7 @@
 (defn default-driver
   []
   (or (:driver *context)
-      (registry/driver registry/*cpu-driver-name*)))
+      (registry/driver @registry/*cpu-driver-name*)))
 
 
 (defn default-device

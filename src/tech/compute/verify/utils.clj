@@ -1,9 +1,9 @@
 (ns tech.compute.verify.utils
   (:require [tech.resource :as resource]
             [clojure.test :refer :all]
-            [tech.v2.datatype :as dtype]
             [tech.v2.datatype.casting :as casting]
-            [tech.compute :as compute])
+            [tech.compute :as compute]
+            [tech.compute.context :as compute-ctx])
   (:import [java.math BigDecimal MathContext]))
 
 
@@ -17,9 +17,9 @@
 (defmacro with-default-device-and-stream
   [driver & body]
   `(resource/stack-resource-context
-     (let [~'device (compute/default-device ~driver)
-           ~'stream (compute/default-stream ~'device)]
-       ~@body)))
+    (compute-ctx/with-context
+      {:driver ~driver})
+     ~@body))
 
 
 (def ^:dynamic *datatype* :float64)
