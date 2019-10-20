@@ -32,6 +32,39 @@
    (new-host-tensor shape {})))
 
 
+(defn assign!
+  "assign rhs to lhs returning lhs"
+  [lhs rhs & [options]]
+  (let [lhs (dtt/ensure-tensor lhs)
+        rhs (dtt/ensure-tensor rhs)
+        lhs-buf (dtt/tensor->buffer lhs)
+        rhs-buf (dtt/tensor->buffer rhs)
+        lhs-shape (dtype/shape lhs)
+        rhs-shape (dtype/shape rhs)
+        stream (:stream (compute-ctx/options->context options))]
+    (when-not (= (dtype/get-datatype lhs)
+                 (dtype/get-datatype rhs))
+      (throw (Exception. (format "Cannot assign tensors of different datatypes: %s %s"
+                                 (dtype/get-datatype lhs)
+                                 (dtype/get-datatype rhs)))))
+    (when-not (and (= lhs-shape
+                      rhs-shape))
+      (throw (Exception. (format "Tensor shapes differ: %s %s"
+                                 lhs-shape
+                                 rhs-shape))))
+    (when-not (and (dtt-impl/simple-dimensions? (dtt/tensor->dimensions lhs))
+                   (dtt-impl/simple-dimensions? (dtt/tensor->dimensions rhs)))
+      (throw (Exception. "Both tensors must be 'simple' tensors.
+no offset, no transpose, all data must be dense.")))
+    (drv/copy-device->device stream
+                             rhs-buf 0
+                             lhs-buf 0
+                             (dtype/ecount lhs-buf))
+    (when (:sync? options)
+      (drv/sync-with-host stream))
+    lhs))
+
+
 (defn clone-to-device
   "Clone a host tensor to a device.  Tensor must have relatively straighforward
   dimensions (transpose OK but arbitrary reorder or offset not OK) or :force?
@@ -52,10 +85,10 @@
                                                 {:unchecked? true}))
          n-elems (dtype/ecount input-tens-buf)
          dev-buf (drv/allocate-device-buffer device n-elems datatype options)]
-     (drv/copy-host->device stream
-                            input-tens-buf 0
-                            dev-buf 0
-                            n-elems)
+     (drv/copy-device->device stream
+                              input-tens-buf 0
+                              dev-buf 0
+                              n-elems)
      (when (:sync? options)
        (drv/sync-with-host stream))
      (dtt-impl/construct-tensor dev-buf (dtt/tensor->dimensions input-tens))))
@@ -98,10 +131,10 @@
          buf-elems (dtype/ecount dev-buf)
          host-buf (drv/allocate-host-buffer driver buf-elems
                                             (dtype/get-datatype dev-buf) options)]
-     (drv/copy-device->host stream
-                            dev-buf 0
-                            host-buf 0
-                            buf-elems)
+     (drv/copy-device->device stream
+                              dev-buf 0
+                              host-buf 0
+                              buf-elems)
      (when (:sync? options)
        (drv/sync-with-host stream))
      (dtt-impl/construct-tensor host-buf (dtt/tensor->dimensions device-tens))))

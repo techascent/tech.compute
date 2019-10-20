@@ -117,32 +117,12 @@ intended usage of the buffer."
   (drv/device->device-copy-compatible? src-device dst-device))
 
 
-(defn copy-host->device
-    "Copy from one device to another.  If no stream is provided then the destination
-buffer's device's default stream is used."
-  [host-buffer host-offset device-buffer device-offset elem-count & {:keys [stream]}]
-  (check-legal-copy! host-buffer host-offset device-buffer device-offset elem-count)
-  (let [stream (provided-or-default-stream stream device-buffer)]
-    (drv/copy-host->device stream host-buffer host-offset
-                           device-buffer device-offset elem-count)))
-
-
-(defn copy-device->host
-    "Copy from one device to another.  If no stream is provided then the source
-device buffer's device's default stream is used."
-  [device-buffer device-offset host-buffer host-offset elem-count & {:keys [stream]}]
-  (check-legal-copy! device-buffer device-offset host-buffer host-offset elem-count)
-  (let [stream (provided-or-default-stream stream device-buffer)]
-    (drv/copy-device->host stream device-buffer device-offset
-                           host-buffer host-offset elem-count)))
-
-
 (defn copy-device->device
   "Copy from one device to another.  If no stream is provided then the destination
 buffer's device's default stream is used."
-  [dev-a dev-a-off dev-b dev-b-off elem-count & {:keys [stream]}]
+  [dev-a dev-a-off dev-b dev-b-off elem-count & {:keys [stream] :as options}]
   (check-legal-copy! dev-a dev-a-off dev-b dev-b-off elem-count)
-  (let [stream (provided-or-default-stream stream dev-b)]
+  (let [{:keys [stream]} (compute-ctx/options->context options)]
     (drv/copy-device->device stream dev-a dev-a-off dev-b dev-b-off elem-count)))
 
 
@@ -159,48 +139,3 @@ buffer's device's default stream is used."
   execution before continuing.  Both streams must be of the same driver."
   [src-stream dst-stream & [options]]
   (drv/sync-with-stream src-stream dst-stream))
-
-
-(defn copy-host-data->device-buffer
-  "Robustly and synchronously make a device buffer with these elements in it.
-1.  Make host buffer of correct size.
-2.  Make device buffer of correct size.
-3.  Copy ary data into host buffer.
-4.  Copy host buffer into device buffer.
-5.  Wait until operation completes.
-6.  Release the host buffer.
-7.  Return device buffer."
-  [stream upload-ary & {:keys [datatype]
-                        :or {datatype (dtype/get-datatype upload-ary)}
-                        :as options}]
-  (let [device (->device stream)
-        driver (->driver device)
-        elem-count (dtype/ecount upload-ary)
-        device-buffer (allocate-device-buffer device elem-count datatype options)
-        upload-buffer (allocate-host-buffer driver elem-count datatype
-                                            :usage-type :one-time)]
-    (dtype/copy-raw->item! upload-ary upload-buffer 0 options)
-    (copy-host->device stream upload-buffer 0 device-buffer 0 elem-count)
-    ;;Hold onto host buffer till this completes
-    (sync-with-host stream {:gc-root upload-buffer})
-    device-buffer))
-
-
-(defn device-buffer->host-buffer
-  "Robustly and synchronously make a device buffer with these elements in it.
-1.  Make host buffer of correct size.
-2.  Copy device buffer into host buffer.
-3.  Wait until operation completes.
-4.  Return host buffer."
-  [stream device-buffer & {:keys [usage-type]
-                           :or {usage-type :one-time}
-                           :as options}]
-  (let [device (->device stream)
-        driver (->driver device)
-        elem-count (dtype/ecount device-buffer)
-        datatype (dtype/get-datatype device-buffer)
-        download-buffer (allocate-host-buffer driver elem-count datatype
-                                              (assoc options :usage-type usage-type))]
-    (copy-device->host stream device-buffer 0 download-buffer 0 elem-count)
-    (sync-with-host stream)
-    download-buffer))

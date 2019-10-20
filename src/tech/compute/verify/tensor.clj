@@ -31,3 +31,14 @@
            dev-tens (ct/clone-to-device sub-tens)
            host-tens (ct/clone-to-host dev-tens)]
        (is (dfn/equals sub-tens host-tens))))))
+
+
+(defn assign!
+  [driver datatype]
+  (verify-context
+   driver datatype
+   (let [tensor (ct/->tensor (partition 3 (range 9)))
+         dev-tens (ct/new-tensor [3 3])
+         _ (ct/assign! dev-tens tensor)
+         host-tens (ct/clone-to-host dev-tens)]
+     (is (dfn/equals tensor host-tens)))))

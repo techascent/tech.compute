@@ -72,12 +72,11 @@ buffer for this device."))
 
 (defprotocol PStream
   "Basic functionality expected of streams.  Streams are an abstraction of a stream of
-  execution and can be synchonized with the host or with each other using events."
-  (copy-host->device [stream host-buffer host-offset
-                      device-buffer device-offset elem-count])
-  (copy-device->host [stream device-buffer device-offset
-                      host-buffer host-offset elem-count])
-  (copy-device->device [stream dev-a dev-a-off dev-b dev-b-off elem-count])
+  execution and can be synchonized with the host or with each other using events.  CPU's
+  are considered devices."
+  (copy-device->device [stream dev-a dev-a-off dev-b dev-b-off elem-count]
+    "copy from one device to another.  Used to initiate host->device, device->host,
+host->host and device->device copies with memcpy semantics.")
   (sync-with-host [stream]
     "Block host until stream's queue is finished executing")
   (sync-with-stream [src-stream dst-stream]
