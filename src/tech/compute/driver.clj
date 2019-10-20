@@ -78,9 +78,6 @@ buffer for this device."))
   (copy-device->host [stream device-buffer device-offset
                       host-buffer host-offset elem-count])
   (copy-device->device [stream dev-a dev-a-off dev-b dev-b-off elem-count])
-  (assign-constant! [stream tens constant]
-    "Assign a constant to a tensor.")
-  (assign-tensor! [stream lhs rhs])
   (sync-with-host [stream]
     "Block host until stream's queue is finished executing")
   (sync-with-stream [src-stream dst-stream]

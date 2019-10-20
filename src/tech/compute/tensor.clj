@@ -41,27 +41,24 @@
   :sync? Sync with stream to ensure copy operation is finished before moving forward."
   ([input-tens options]
    (let [input-tens (dtt/ensure-tensor input-tens)
-         dims-incompatible? (not
-                             (dtt-impl/simple-dimensions?
-                              (dtt-impl/tensor->dimensions input-tens)))
-         _ (when (and dims-incompatible?
-                     (not (:force? options)))
-             (throw (Exception. "Incompatible dimensions and force? not specified")))
-
-         input-tens (if dims-incompatible?
-                      (dtt/clone input-tens :container-type :native-buffer)
-                      input-tens)
-         options (-> (assoc options :datatype (dtype/get-datatype input-tens))
-                     (compute-ctx/options->context))
-         {:keys [stream]} options
-         device-tensor (new-tensor (dtype/shape input-tens) options)]
+         input-tens-buf (dtt/tensor->buffer input-tens)
+         {:keys [device stream]} (compute-ctx/options->context options)
+         datatype (dtype/get-datatype input-tens-buf)
+         input-tens-buf (if (drv/acceptable-device-buffer? device input-tens-buf)
+                          input-tens-buf
+                          (dtype/make-container :native-buffer
+                                                datatype
+                                                input-tens-buf
+                                                {:unchecked? true}))
+         n-elems (dtype/ecount input-tens-buf)
+         dev-buf (drv/allocate-device-buffer device n-elems datatype options)]
      (drv/copy-host->device stream
-                            (dtt/tensor->buffer input-tens) 0
-                            (dtt/tensor->buffer device-tensor) 0
-                            (dtype/ecount input-tens))
+                            input-tens-buf 0
+                            dev-buf 0
+                            n-elems)
      (when (:sync? options)
        (drv/sync-with-host stream))
-     device-tensor))
+     (dtt-impl/construct-tensor dev-buf (dtt/tensor->dimensions input-tens))))
   ([input-tens]
    (clone-to-device input-tens {})))
 
@@ -80,14 +77,6 @@
    (ensure-device input-tens {})))
 
 
-(defn clone-device-tensor
-  [dev-tens & [options]]
-  (let [result (new-tensor (dtype/shape dev-tens))
-        {:keys [stream]} (compute-ctx/options->context options)]
-    (drv/assign-tensor! stream result dev-tens)
-    result))
-
-
 (defn ->tensor
   [data & {:keys [datatype device stream sync?]
            :as options}]
@@ -103,26 +92,19 @@
    (let [options (update options
                          :sync?
                          #(if (nil? %) true %))
-         dims-incompatible? (not
-                             (dtt-impl/simple-dimensions?
-                              (dtt-impl/tensor->dimensions device-tens)))
-         _ (when (and dims-incompatible?
-                     (not (:force? options)))
-             (throw (Exception. "Incompatible dimensions and force? not specified")))
-         options (assoc options :datatype (dtype/get-datatype device-tens))
-         stream (or (:stream options)
-                    (drv/default-stream (drv/get-device device-tens)))
-         device-tens (if dims-incompatible?
-                      (clone-device-tensor stream device-tens options)
-                      device-tens)
-         host-tensor (new-host-tensor (dtype/shape device-tens) options)]
+         driver (drv/get-driver device-tens)
+         {:keys [stream]} (compute-ctx/options->context options)
+         dev-buf (dtt/tensor->buffer device-tens)
+         buf-elems (dtype/ecount dev-buf)
+         host-buf (drv/allocate-host-buffer driver buf-elems
+                                            (dtype/get-datatype dev-buf) options)]
      (drv/copy-device->host stream
-                            (dtt/tensor->buffer device-tens) 0
-                            (dtt/tensor->buffer host-tensor) 0
-                            (dtype/ecount device-tens))
+                            dev-buf 0
+                            host-buf 0
+                            buf-elems)
      (when (:sync? options)
        (drv/sync-with-host stream))
-     host-tensor))
+     (dtt-impl/construct-tensor host-buf (dtt/tensor->dimensions device-tens))))
   ([device-tens]
    (clone-to-host device-tens {:sync? true})))
 
@@ -159,37 +141,6 @@
 (defn ->double-array
   [tens]
   (->array tens :float64))
-
-
-(defn assign!
-  "Assign the right hand side to the left hand side returning the left hand side.
-  left hand side must be a device tensor "
-  [lhs rhs & [options]]
-  (let [{:keys [stream]} (compute-ctx/options->context options)
-        lhs (dtt/ensure-tensor lhs)
-        lhs-reader? (dtype-proto/convertible-to-reader? lhs)]
-    (if (number? rhs)
-      (if lhs-reader?
-        (dtype/set-constant! lhs 0 rhs (dtype/ecount lhs))
-        (drv/assign-constant! stream lhs rhs))
-      (let [lhs-shape (dtype/shape lhs)
-            rhs-shape (dtype/shape rhs)
-            rhs-reader? (dtype-proto/convertible-to-reader? rhs)
-            rhs (if (= lhs-shape rhs-shape)
-                  rhs
-                  (dtt/broadcast rhs lhs-shape))]
-        (cond
-          (and lhs-reader? rhs-reader?)
-          (dtype/copy! rhs lhs)
-          (and (dtt-impl/simple-dimensions? (dtt/tensor->dimensions lhs))
-               (dtt-impl/simple-dimensions? (dtt/tensor->dimensions rhs)))
-          (drv/copy-device->device stream
-                                   (dtt/tensor->buffer lhs) 0
-                                   (dtt/tensor->buffer rhs) 0
-                                   (dtype/ecount lhs))
-          :else
-          (drv/assign-tensor! stream lhs rhs))))
-    lhs))
 
 
 (defn rows
